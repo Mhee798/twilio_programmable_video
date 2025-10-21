@@ -3,14 +3,14 @@ version '1.0-SNAPSHOT'
 
 buildscript {
     ext.kotlin_version = '2.1.+'
-    ext.twilio_video_version = '6.4.+'
+    ext.twilio_video_version = '7.8.+'
     repositories {
         google()
         mavenCentral()
     }
 
     dependencies {
-        classpath 'com.android.tools.build:gradle:8.5.2'
+        classpath 'com.android.tools.build:gradle:8.13.0'
         classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:1.9.23"
     }
 }
@@ -28,14 +28,15 @@ apply plugin: 'kotlin-parcelize'
 
 android {
     namespace "twilio.flutter.twilio_programmable_video"
-    compileSdkVersion 34
+    compileSdkVersion 35
+    ndkVersion = "29.0.14206865"
 
     sourceSets {
         main.java.srcDirs += 'src/main/kotlin'
     }
     defaultConfig {
         minSdk 21
-        targetSdk 34
+        targetSdk 35
         versionCode 1
         versionName "1.0"
     }
