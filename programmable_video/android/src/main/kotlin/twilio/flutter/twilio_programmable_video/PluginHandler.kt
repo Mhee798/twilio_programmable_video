@@ -1,10 +1,13 @@
 package twilio.flutter.twilio_programmable_video
 
+import android.Manifest
 import android.app.Activity
 import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothProfile
 import android.content.Context
+import android.content.pm.PackageManager
 import android.media.AudioAttributes
+import androidx.core.content.ContextCompat
 import android.media.AudioDeviceInfo
 import android.media.AudioFocusRequest
 import android.media.AudioManager
@@ -423,7 +426,7 @@ class PluginHandler : MethodCallHandler, ActivityAware, BaseListener {
     }
 
     private fun setSpeakerPhoneOnInternal() {
-        val bluetoothProfileConnectionState = BluetoothAdapter.getDefaultAdapter().getProfileConnectionState(BluetoothProfile.HEADSET)
+        val bluetoothProfileConnectionState = getBluetoothProfileConnectionState()
         debug("setSpeakerPhoneOnInternal => on: ${audioSettings.speakerEnabled}\n bluetoothEnable: ${audioSettings.bluetoothPreferred}\n bluetoothScoOn: ${audioManager.isBluetoothScoOn}\n bluetoothProfileConnectionState: $bluetoothProfileConnectionState")
 
         // Even if already enabled, setting `audioManager.isSpeakerphoneOn` to true
@@ -437,6 +440,40 @@ class PluginHandler : MethodCallHandler, ActivityAware, BaseListener {
         if (!audioSettings.bluetoothPreferred ||
                 bluetoothProfileConnectionState != BluetoothProfile.STATE_CONNECTED) {
             applySpeakerPhoneSettings()
+        }
+    }
+
+    /**
+     * Check if Bluetooth permission is granted.
+     * For Android 12+ (API 31+), BLUETOOTH_CONNECT permission is required.
+     * For older Android versions, no runtime permission is needed.
+     */
+    internal fun hasBluetoothPermission(): Boolean {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            ContextCompat.checkSelfPermission(
+                applicationContext,
+                Manifest.permission.BLUETOOTH_CONNECT
+            ) == PackageManager.PERMISSION_GRANTED
+        } else {
+            true
+        }
+    }
+
+    /**
+     * Get Bluetooth profile connection state safely.
+     * Returns STATE_DISCONNECTED if permission is not granted or Bluetooth is not available.
+     */
+    private fun getBluetoothProfileConnectionState(): Int {
+        if (!hasBluetoothPermission()) {
+            debug("getBluetoothProfileConnectionState => Bluetooth permission not granted, returning STATE_DISCONNECTED")
+            return BluetoothProfile.STATE_DISCONNECTED
+        }
+        return try {
+            BluetoothAdapter.getDefaultAdapter()?.getProfileConnectionState(BluetoothProfile.HEADSET)
+                ?: BluetoothProfile.STATE_DISCONNECTED
+        } catch (e: SecurityException) {
+            debug("getBluetoothProfileConnectionState => SecurityException: ${e.message}")
+            BluetoothProfile.STATE_DISCONNECTED
         }
     }
 

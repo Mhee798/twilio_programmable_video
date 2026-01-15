@@ -9,6 +9,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.media.AudioManager
+import android.os.Build
 
 class AudioNotificationListener() : BaseListener() {
     private val TAG = "AudioNotificationListener"
@@ -59,14 +60,38 @@ class AudioNotificationListener() : BaseListener() {
 
     fun listenForRouteChanges(context: Context) {
         debug("listenForRouteChanges")
-        context.registerReceiver(receiver, intentFilter)
-        BluetoothAdapter.getDefaultAdapter()?.getProfileProxy(context, getProfileProxy(), BluetoothProfile.HEADSET)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            context.registerReceiver(receiver, intentFilter, Context.RECEIVER_EXPORTED)
+        } else {
+            context.registerReceiver(receiver, intentFilter)
+        }
+        // Only access Bluetooth API if permission is granted
+        if (TwilioProgrammableVideoPlugin.pluginHandler.hasBluetoothPermission()) {
+            try {
+                BluetoothAdapter.getDefaultAdapter()?.getProfileProxy(context, getProfileProxy(), BluetoothProfile.HEADSET)
+            } catch (e: SecurityException) {
+                debug("listenForRouteChanges => Bluetooth SecurityException: ${e.message}")
+            }
+        } else {
+            debug("listenForRouteChanges => Bluetooth permission not granted, skipping Bluetooth profile proxy")
+        }
     }
 
     fun stopListeningForRouteChanges(context: Context) {
         debug("stopListeningForRouteChanges")
-        context.unregisterReceiver(receiver)
-        BluetoothAdapter.getDefaultAdapter()?.closeProfileProxy(BluetoothProfile.HEADSET, bluetoothProfile)
+        try {
+            context.unregisterReceiver(receiver)
+        } catch (e: IllegalArgumentException) {
+            debug("stopListeningForRouteChanges => Receiver not registered: ${e.message}")
+        }
+        // Only access Bluetooth API if permission is granted
+        if (TwilioProgrammableVideoPlugin.pluginHandler.hasBluetoothPermission()) {
+            try {
+                BluetoothAdapter.getDefaultAdapter()?.closeProfileProxy(BluetoothProfile.HEADSET, bluetoothProfile)
+            } catch (e: SecurityException) {
+                debug("stopListeningForRouteChanges => Bluetooth SecurityException: ${e.message}")
+            }
+        }
     }
 
     private fun getBroadcastReceiver(): BroadcastReceiver {
