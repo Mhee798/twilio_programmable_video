@@ -401,14 +401,18 @@ class PluginHandler : MethodCallHandler, ActivityAware, BaseListener {
     }
 
     internal fun setBluetoothSco(on: Boolean) {
-        if (on) {
-            audioManager.startBluetoothSco()
-            debug("startBluetoothSco => on: $on\n" +
-                    "\tbluetoothPreferred: ${audioSettings.bluetoothPreferred}\n" +
-                    "\tscoOn: ${audioManager.isBluetoothScoOn}")
-        } else {
-            audioManager.stopBluetoothSco()
-            debug("stopBluetoothSco => on: $on\n\tbluetoothPreferred: ${audioSettings.bluetoothPreferred}\n\tscoOn: ${audioManager.isBluetoothScoOn}")
+        try {
+            if (on) {
+                audioManager.startBluetoothSco()
+                debug("startBluetoothSco => on: $on\n" +
+                        "\tbluetoothPreferred: ${audioSettings.bluetoothPreferred}\n" +
+                        "\tscoOn: ${audioManager.isBluetoothScoOn}")
+            } else {
+                audioManager.stopBluetoothSco()
+                debug("stopBluetoothSco => on: $on\n\tbluetoothPreferred: ${audioSettings.bluetoothPreferred}\n\tscoOn: ${audioManager.isBluetoothScoOn}")
+            }
+        } catch (e: Exception) {
+            debug("setBluetoothSco => Exception: ${e.message}")
         }
     }
 
@@ -426,8 +430,9 @@ class PluginHandler : MethodCallHandler, ActivityAware, BaseListener {
     }
 
     private fun setSpeakerPhoneOnInternal() {
+        val hasBluetoothPerm = hasBluetoothPermission()
         val bluetoothProfileConnectionState = getBluetoothProfileConnectionState()
-        debug("setSpeakerPhoneOnInternal => on: ${audioSettings.speakerEnabled}\n bluetoothEnable: ${audioSettings.bluetoothPreferred}\n bluetoothScoOn: ${audioManager.isBluetoothScoOn}\n bluetoothProfileConnectionState: $bluetoothProfileConnectionState")
+        debug("setSpeakerPhoneOnInternal => on: ${audioSettings.speakerEnabled}\n bluetoothEnable: ${audioSettings.bluetoothPreferred}\n bluetoothScoOn: ${audioManager.isBluetoothScoOn}\n bluetoothProfileConnectionState: $bluetoothProfileConnectionState\n hasBluetoothPermission: $hasBluetoothPerm")
 
         // Even if already enabled, setting `audioManager.isSpeakerphoneOn` to true
         // will reroute audio to the speaker. If using a Bluetooth headset, this will cause audio to
@@ -437,8 +442,11 @@ class PluginHandler : MethodCallHandler, ActivityAware, BaseListener {
         // the bluetoothProfileConnectionState will still be BluetoothProfile.STATE_CONNECTED
         // resulting in an edge case where audio will be routed via the receiver rather than the
         // bottom speaker.
+        //
+        // If Bluetooth permission is not granted, we skip the connection state check
+        // and let BluetoothSco handle the routing (which doesn't require permission).
         if (!audioSettings.bluetoothPreferred ||
-                bluetoothProfileConnectionState != BluetoothProfile.STATE_CONNECTED) {
+                (hasBluetoothPerm && bluetoothProfileConnectionState != BluetoothProfile.STATE_CONNECTED)) {
             applySpeakerPhoneSettings()
         }
     }

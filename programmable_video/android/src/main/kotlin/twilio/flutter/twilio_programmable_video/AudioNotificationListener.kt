@@ -117,8 +117,20 @@ class AudioNotificationListener() : BaseListener() {
 
                 val event = if (connected) "newDeviceAvailable" else "oldDeviceUnavailable"
 
-                val deviceName = if (bluetoothEvent) intent?.getParcelableExtra<BluetoothDevice>(BluetoothDevice.EXTRA_DEVICE)?.name
-                    else intent?.getStringExtra("portName") ?: return
+                // For Bluetooth events, getting device name requires BLUETOOTH_CONNECT permission on Android 12+
+                // We wrap this in try-catch and use a fallback name if permission is not granted
+                val deviceName: String? = if (bluetoothEvent) {
+                    try {
+                        intent?.getParcelableExtra<BluetoothDevice>(BluetoothDevice.EXTRA_DEVICE)?.name ?: "Bluetooth Device"
+                    } catch (e: SecurityException) {
+                        debug("onReceive => Cannot get Bluetooth device name: ${e.message}")
+                        "Bluetooth Device"
+                    }
+                } else {
+                    intent?.getStringExtra("portName")
+                }
+
+                if (deviceName == null && !bluetoothEvent) return
 
                 debug("onReceive => connected: $connected\n\tevent: $event\n\tbluetoothEvent: $bluetoothEvent\n\twiredEvent: $wiredEvent\n\tdeviceName: $deviceName")
 
@@ -131,7 +143,7 @@ class AudioNotificationListener() : BaseListener() {
                         "connected" to connected,
                         "bluetooth" to bluetoothEvent,
                         "wired" to wiredEvent,
-                        "deviceName" to deviceName
+                        "deviceName" to (deviceName ?: "Unknown Device")
                 ))
             }
         }
