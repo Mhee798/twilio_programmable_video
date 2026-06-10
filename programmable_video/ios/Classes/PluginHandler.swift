@@ -153,6 +153,32 @@ public class PluginHandler: BaseListener {
         }
     }
 
+    /// เลือก capture format ใกล้ 1280x720 ที่สุดของกล้องตัวนั้น แล้ว clamp
+    /// frame rate ที่ 24fps (เดิมไม่ส่ง format → SDK default VGA 640x480)
+    /// เป็นแค่เพดาน — WebRTC ลด encode ลงเองเมื่อ bandwidth ไม่พอ
+    /// pattern ตาม Twilio VideoQuickStart selectVideoFormatBySize:
+    /// supportedFormats เรียงจากเล็กไปใหญ่ → ตัวแรกที่ >= 720p คือใกล้เคียงสุด
+    private func captureVideoFormat(for device: AVCaptureDevice) -> VideoFormat? {
+        let supportedFormats = Array(CameraSource.supportedFormats(captureDevice: device)) as? [VideoFormat] ?? []
+        var selectedFormat: VideoFormat?
+        for format in supportedFormats {
+            if format.pixelFormat != PixelFormat.formatYUV420BiPlanarFullRange {
+                continue
+            }
+            selectedFormat = format
+            if format.dimensions.width >= 1280 && format.dimensions.height >= 720 {
+                break
+            }
+        }
+        guard let format = selectedFormat else {
+            return nil
+        }
+        if format.frameRate > 24 {
+            format.frameRate = 24
+        }
+        return format
+    }
+
     private func localVideoTrackCreate(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
         guard let arguments = call.arguments as? [String: Any?] else {
             return result(FlutterError(code: "MISSING_PARAMS", message: "Missing 'name', 'enable' and 'videoCapturer' parameters", details: nil))
@@ -193,12 +219,18 @@ public class PluginHandler: BaseListener {
 
                 SwiftTwilioProgrammableVideoPlugin.localVideoTracks[localVideoTrackName] = localVideoTrack
 
-                videoSource.startCapture(device: cameraDevice) { (device: AVCaptureDevice, _: VideoFormat, error: Error?) in
+                let captureCompletion = { (device: AVCaptureDevice, _: VideoFormat, error: Error?) in
                     if let error = error {
                         self.sendEvent("cameraError", data: ["capturer": self.videoSourceToDict(SwiftTwilioProgrammableVideoPlugin.cameraSource, newCameraSource: nil)], error: error)
                     } else {
                         self.sendEvent("firstFrameAvailable", data: ["capturer": self.videoSourceToDict(SwiftTwilioProgrammableVideoPlugin.cameraSource, newCameraSource: device.position)], error: nil)
                     }
+                }
+                if let format = captureVideoFormat(for: cameraDevice) {
+                    videoSource.startCapture(device: cameraDevice, format: format, completion: captureCompletion)
+                } else {
+                    // หา format ไม่ได้ → ปล่อยให้ SDK เลือก default เอง
+                    videoSource.startCapture(device: cameraDevice, completion: captureCompletion)
                 }
                 SwiftTwilioProgrammableVideoPlugin.cameraSource = videoSource
             }
@@ -713,12 +745,18 @@ public class PluginHandler: BaseListener {
                             videoTracks.append(LocalVideoTrack(source: videoSource, enabled: enable ?? true, name: name ?? nil)!)
                         }
 
-                        videoSource.startCapture(device: cameraDevice) { (device: AVCaptureDevice, _: VideoFormat, error: Error?) in
+                        let captureCompletion = { (device: AVCaptureDevice, _: VideoFormat, error: Error?) in
                             if let error = error {
                                 self.sendEvent("cameraError", data: ["capturer": self.videoSourceToDict(SwiftTwilioProgrammableVideoPlugin.cameraSource, newCameraSource: nil)], error: error)
                             } else {
                                 self.sendEvent("firstFrameAvailable", data: ["capturer": self.videoSourceToDict(SwiftTwilioProgrammableVideoPlugin.cameraSource, newCameraSource: device.position)], error: nil)
                             }
+                        }
+                        if let format = self.captureVideoFormat(for: cameraDevice) {
+                            videoSource.startCapture(device: cameraDevice, format: format, completion: captureCompletion)
+                        } else {
+                            // หา format ไม่ได้ → ปล่อยให้ SDK เลือก default เอง
+                            videoSource.startCapture(device: cameraDevice, completion: captureCompletion)
                         }
                         SwiftTwilioProgrammableVideoPlugin.cameraSource = videoSource
                     }

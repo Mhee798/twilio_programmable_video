@@ -32,6 +32,8 @@ import com.twilio.video.PcmuCodec
 import com.twilio.video.RemoteAudioTrackPublication
 import com.twilio.video.RemoteParticipant
 import com.twilio.video.VideoCodec
+import com.twilio.video.VideoDimensions
+import com.twilio.video.VideoFormat
 import com.twilio.video.Vp8Codec
 import com.twilio.video.Vp9Codec
 import io.flutter.embedding.engine.plugins.activity.ActivityAware
@@ -45,6 +47,11 @@ import java.util.ArrayList
 
 class PluginHandler : MethodCallHandler, ActivityAware, BaseListener {
     private val TAG = "PluginHandler"
+
+    // Capture ceiling 720p@24 (เดิมไม่ส่ง format → SDK default VGA 640x480)
+    // เป็นแค่เพดาน — WebRTC ลด encode resolution/bitrate ลงเองเมื่อ
+    // bandwidth ไม่พอ และไต่กลับเมื่อเน็ตฟื้น
+    private val captureVideoFormat = VideoFormat(VideoDimensions.HD_720P_VIDEO_DIMENSIONS, 24)
 
     private var previousAudioMode: Int? = null
 
@@ -174,6 +181,7 @@ class PluginHandler : MethodCallHandler, ActivityAware, BaseListener {
                 this.applicationContext,
                 enabled,
                 TwilioProgrammableVideoPlugin.cameraCapturer!!,
+                captureVideoFormat,
                 name
             ) ?: return result.error(
                 "INIT_ERROR",
@@ -630,7 +638,7 @@ class PluginHandler : MethodCallHandler, ActivityAware, BaseListener {
                             videoTracks.add(TwilioProgrammableVideoPlugin.localVideoTracks[name])
                             TwilioProgrammableVideoPlugin.localVideoTracks -= name
                         } else {
-                            videoTracks.add(LocalVideoTrack.create(this.applicationContext, videoTrack["enable"] as Boolean, TwilioProgrammableVideoPlugin.cameraCapturer!!, videoTrack["name"] as String))
+                            videoTracks.add(LocalVideoTrack.create(this.applicationContext, videoTrack["enable"] as Boolean, TwilioProgrammableVideoPlugin.cameraCapturer!!, captureVideoFormat, videoTrack["name"] as String))
                         }
                     }
                 }
