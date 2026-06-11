@@ -303,6 +303,19 @@ public class PluginHandler: BaseListener {
     }
 
     private func localVideoTrackRelease(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
+        // Mirror Android: remove the (unpublished) track from the plugin map.
+        // Previously a no-op, which left a dead track behind when a call
+        // ended while video was unpublished (background pause) — the NEXT
+        // call's connect then reused that dead track by name and local video
+        // stayed black for the whole call. Removing the entry also makes
+        // resume-after-background deterministic on iOS: create() builds a
+        // fresh CameraSource + track instead of republishing the old one.
+        guard let arguments = call.arguments as? [String: Any?],
+              let localVideoTrackName = arguments["name"] as? String else {
+            return result(FlutterError(code: "MISSING_PARAMS", message: missingParameterMessage("name"), details: nil))
+        }
+        debug("localVideoTrackRelease => called for \(localVideoTrackName)")
+        SwiftTwilioProgrammableVideoPlugin.localVideoTracks.removeValue(forKey: localVideoTrackName)
         return result(nil)
     }
 
