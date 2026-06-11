@@ -183,7 +183,7 @@ class Room {
     // A legitimate Disconnected always follows Connected (sid is set and
     // matches), so dropping the cases below cannot break real flows.
     if (event is Disconnected) {
-      final eventSid = event.roomModel.sid;
+      final eventSid = event.roomModel?.sid ?? '';
       final neverConnected = _sid == null;
       final differentRoom = _sid != null && eventSid.isNotEmpty && eventSid != _sid;
       if (neverConnected || differentRoom) {
