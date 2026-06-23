@@ -31,9 +31,12 @@ class ParticipantViewFactory: NSObject, FlutterPlatformViewFactory {
                  debug("create => constructing local view with: '\(params)'")
                  if name != "" && SwiftTwilioProgrammableVideoPlugin.localVideoTracks.keys.contains(name) {
                      videoTrack = SwiftTwilioProgrammableVideoPlugin.localVideoTracks[name]
-                 } else {
-                     let localParticipant = plugin.getLocalParticipant()!
-                     videoTrack = localParticipant.localVideoTracks[0].localTrack!
+                 } else if let localParticipant = plugin.getLocalParticipant(),
+                           let firstLocalTrack = localParticipant.localVideoTracks.first?.localTrack {
+                     // เดิม: localVideoTracks[0].localTrack! — crash (NSRangeException)
+                     // เมื่อ array ว่าง (video unpublished ตอน background pause +
+                     // view rebuild ก่อน republish) → ใช้ .first? + ปล่อย nil ผ่านได้
+                     videoTrack = firstLocalTrack
                  }
              } else if let remoteParticipantSid = params["remoteParticipantSid"] as? String, let remoteVideoTrackSid = params["remoteVideoTrackSid"] as? String {
                  debug("create => constructing remote view with: '\(params)'")
@@ -50,7 +53,7 @@ class ParticipantViewFactory: NSObject, FlutterPlatformViewFactory {
          videoView.shouldMirror = shouldMirror
          videoView.contentMode = mode
 
-         return ParticipantView(videoView, videoTrack: videoTrack!)
+         return ParticipantView(videoView, videoTrack: videoTrack)
      }
 
     func debug(_ msg: String) {

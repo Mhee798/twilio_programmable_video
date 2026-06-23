@@ -153,30 +153,58 @@ public class PluginHandler: BaseListener {
         }
     }
 
-    /// เลือก capture format ใกล้ 1280x720 ที่สุดของกล้องตัวนั้น แล้ว clamp
-    /// frame rate ที่ 24fps (เดิมไม่ส่ง format → SDK default VGA 640x480)
-    /// เป็นแค่เพดาน — WebRTC ลด encode ลงเองเมื่อ bandwidth ไม่พอ
-    /// pattern ตาม Twilio VideoQuickStart selectVideoFormatBySize:
-    /// supportedFormats เรียงจากเล็กไปใหญ่ → ตัวแรกที่ >= 720p คือใกล้เคียงสุด
+    /// เลือก capture format >= 1280x720 ที่ "ใกล้ 720p ที่สุด" ของกล้องตัวนั้น
+    /// (เดิมไม่ส่ง format → SDK default VGA 640x480) เป็นแค่เพดาน — WebRTC
+    /// ลด encode ลงเองเมื่อ bandwidth ไม่พอ
+    ///
+    /// สำคัญ: ห้าม mutate ค่าใน VideoFormat ที่ supportedFormats คืนมา
+    /// แต่ละ entry คือคู่ (dimensions, frameRate, pixelFormat) ที่ valid อยู่แล้ว
+    /// เดิม force `format.frameRate = 24` บน format ที่ device รันที่ fps อื่น
+    /// → ได้คู่ res/fps ที่ไม่อยู่ในรายการ supported → startCapture เริ่ม session
+    /// ไม่ได้ และ completion ไม่ fire (ทั้ง firstFrameAvailable/cameraError) →
+    /// กล้องดำทั้งสาย → app สั่ง forceReconnect แล้วสายหลุด
+    ///
+    /// จึงเลือกจาก entry ที่ SDK รายงานมาตรงๆ: ความละเอียดเล็กสุดที่ยัง >= 720p,
+    /// ภายใน res เดียวกันเลือก frameRate <= 24 ที่สูงสุด (cap bandwidth);
+    /// ถ้าไม่มี <= 24 เอา frameRate ต่ำสุดของ res นั้น
     private func captureVideoFormat(for device: AVCaptureDevice) -> VideoFormat? {
         let supportedFormats = Array(CameraSource.supportedFormats(captureDevice: device)) as? [VideoFormat] ?? []
-        var selectedFormat: VideoFormat?
+        var best: VideoFormat?
         for format in supportedFormats {
             if format.pixelFormat != PixelFormat.formatYUV420BiPlanarFullRange {
                 continue
             }
-            selectedFormat = format
-            if format.dimensions.width >= 1280 && format.dimensions.height >= 720 {
-                break
+            if Int(format.dimensions.width) < 1280 || Int(format.dimensions.height) < 720 {
+                continue
+            }
+            guard let current = best else {
+                best = format
+                continue
+            }
+            let curArea = Int(current.dimensions.width) * Int(current.dimensions.height)
+            let newArea = Int(format.dimensions.width) * Int(format.dimensions.height)
+            if newArea < curArea {
+                best = format                          // res เล็กกว่า แต่ยัง >= 720p → ใกล้เคียงกว่า
+            } else if newArea == curArea {
+                let cur = current.frameRate
+                let new = format.frameRate
+                let curOk = cur <= 24
+                let newOk = new <= 24
+                if curOk && newOk {
+                    if new > cur { best = format }      // ทั้งคู่ <= 24 → เอา fps สูงกว่า
+                } else if newOk {
+                    best = format                       // เฉพาะ new อยู่ในเพดาน 24
+                } else if !curOk {
+                    if new < cur { best = format }      // ทั้งคู่ > 24 → เอา fps ต่ำสุด
+                }
             }
         }
-        guard let format = selectedFormat else {
-            return nil
+        if let best = best {
+            debug("captureVideoFormat => selected \(Int(best.dimensions.width))x\(Int(best.dimensions.height))@\(best.frameRate)")
+        } else {
+            debug("captureVideoFormat => no >=720p FullRange format, using SDK default")
         }
-        if format.frameRate > 24 {
-            format.frameRate = 24
-        }
-        return format
+        return best
     }
 
     private func localVideoTrackCreate(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
