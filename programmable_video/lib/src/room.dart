@@ -174,6 +174,23 @@ class Room {
     if (event is SkippableRoomEvent) {
       return;
     }
+    // Guard against cross-call event bleed: the native side shares one
+    // event channel across consecutive connects (roomStream caches the
+    // broadcast stream with `??=`), so a LATE event from a previous,
+    // already-disconnected room can arrive after a new Room subscribed.
+    // Without this guard a stale `Disconnected` from the old room kills
+    // the new call instantly (reproduced with rapid hangup -> redial).
+    // A legitimate Disconnected always follows Connected (sid is set and
+    // matches), so dropping the cases below cannot break real flows.
+    if (event is Disconnected) {
+      final eventSid = event.roomModel?.sid ?? '';
+      final neverConnected = _sid == null;
+      final differentRoom = _sid != null && eventSid.isNotEmpty && eventSid != _sid;
+      if (neverConnected || differentRoom) {
+        TwilioProgrammableVideo._log("Room => Ignoring stale Disconnected event (event sid: '$eventSid', this room sid: '$_sid')");
+        return;
+      }
+    }
     _updateFromModel(event.roomModel);
 
     if (event is ConnectFailure) {
