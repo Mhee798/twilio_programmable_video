@@ -90,6 +90,27 @@ pod_lint_programmable_video:
       - merge_requests
     changes:
       - twilio_programmable_video/ios/twilio_programmable_video.podspec
+      # The podspec globs the Swift Package source tree, so moving or adding sources
+      # there changes what CocoaPods compiles and must re-lint.
+      - twilio_programmable_video/ios/twilio_programmable_video/Sources/**/*
+      - .gitlab-ci.yml
+
+spm_lint_programmable_video:
+  image: swift:5.9
+  stage: lint
+  script:
+    # Linux CI can only run the manifest half; see the script's header for why, and for
+    # what the macOS-only full mode adds.
+    - ./twilio_programmable_video/ios/tool/validate_package_swift.sh --manifest-only
+  only:
+    refs:
+      - merge_requests
+    changes:
+      - twilio_programmable_video/ios/twilio_programmable_video/Package.swift
+      # The manifest names its target's source directory, so moving or renaming the
+      # sources can invalidate it — re-run this check when they change.
+      - twilio_programmable_video/ios/twilio_programmable_video/Sources/**/*
+      - twilio_programmable_video/ios/tool/validate_package_swift.sh
       - .gitlab-ci.yml
 
 swift_analyze_programmable_video:

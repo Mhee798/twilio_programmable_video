@@ -1,0 +1,2 @@
+# Dev-only iOS tooling; not needed by consumers of the published package.
+ios/tool/
