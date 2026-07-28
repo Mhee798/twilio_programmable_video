@@ -1,3 +1,5 @@
+import Foundation
+
 internal class AudioSettings: NSObject {
     var speakerEnabled: Bool = true
     var bluetoothPreferred: Bool = true

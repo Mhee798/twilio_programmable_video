@@ -125,16 +125,55 @@ end
 For an example check out the `Podfile` of the example application.
 
 
-##### Setting minimal iOS target to 11
+##### Setting minimal iOS target to 13
+
+This plugin requires iOS 13.0 or higher. `pod install` fails outright if your app targets
+anything lower.
 
 1. In Xcode, open `Runner.xcworkspace` in your app's `ios` folder.
 2. To view your app’s settings, select the **Runner** project in the Xcode project navigator. Then, in the main view sidebar, select the **Runner** target.
 3. Select the **General** tab.
-4. In the **Deployment Info** section, set the Target to iOS 11.
+4. In the **Deployment Info** section, set the Target to iOS 13.
+5. In your `ios/Podfile`, make sure the global platform is uncommented and set to at least `13.0`:
+
+```ruby
+platform :ios, '13.0'
+```
 
 ##### Background Modes
 
 To allow a connection to a Room to be persisted while an application is running in the background, you must select the Audio, AirPlay, and Picture in Picture background mode from the Capabilities project settings page. See [Twilio Docs](https://www.twilio.com/docs/video/ios-v3-getting-started#background-modes) for more information.
+
+##### Swift Package Manager
+
+The iOS plugin ships a `Package.swift`, so it builds under either CocoaPods or
+[Swift Package Manager](https://docs.flutter.dev/packages-and-plugins/swift-package-manager/for-app-developers).
+CocoaPods remains fully supported and needs no changes.
+
+To build via SwiftPM you need **Flutter 3.44 or newer**. The manifest depends on the
+`FlutterFramework` package that `flutter build` generates beside the plugin, and Flutter
+only started generating it in 3.44. On an older Flutter the plugin still works via
+CocoaPods, but enabling SwiftPM (`flutter config --enable-swift-package-manager`) makes
+the iOS build fail while resolving a missing package under `ios/Flutter/ephemeral/`.
+
+##### Migrating from an Objective-C `AppDelegate`
+
+The plugin's Objective-C header was removed when the iOS sources moved to a Swift Package
+layout — a single Swift Package target cannot mix Swift and Objective-C sources. The
+generated plugin registrants are unaffected and keep working on both build systems.
+
+Only hand-written Objective-C that imported the header directly needs a change:
+
+```objc
+// Before
+#import <twilio_programmable_video/TwilioProgrammableVideoPlugin.h>
+
+// After
+@import twilio_programmable_video;
+```
+
+The class is still called `TwilioProgrammableVideoPlugin` in Objective-C, so calls such as
+`[TwilioProgrammableVideoPlugin registerWithRegistrar:]` need no edit.
 
 #### Web
 

@@ -9,6 +9,13 @@ profile
 
 DerivedData/
 build/
+
+# Swift Package Manager. `build/` above does not match the dot-prefixed .build/,
+# and a library should not pin its dependents' resolutions.
+.build/
+.swiftpm/
+Package.resolved
+
 GeneratedPluginRegistrant.h
 GeneratedPluginRegistrant.m
 

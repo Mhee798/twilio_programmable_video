@@ -1,3 +1,22 @@
+## Unreleased
+
+- **iOS BREAKING**: the minimum supported iOS version is now **13.0** (was 11.0). Apps targeting
+  a lower version fail at `pod install` with `The platform of the target 'Runner' (iOS 11.0) is not
+  compatible with twilio_programmable_video`. Set `platform :ios, '13.0'` in your `ios/Podfile` and
+  raise **Deployment Info → Target** to iOS 13 in Xcode.
+- **iOS BREAKING**: the Objective-C header `<twilio_programmable_video/TwilioProgrammableVideoPlugin.h>`
+  has been removed. A Swift Package target cannot mix Swift and Objective-C sources, so the
+  hand-written shim is gone; `TwilioProgrammableVideoPlugin` remains available to Objective-C via
+  `@objc` and to Swift via a `typealias`, so the generated plugin registrants keep working. Only
+  hand-written Objective-C that `#import`s the header directly is affected — replace the import with
+  `@import twilio_programmable_video;`.
+- **iOS**: the plugin now ships a `Package.swift`, so it builds under Swift Package Manager in
+  addition to CocoaPods. Swift sources moved to `ios/twilio_programmable_video/Sources/twilio_programmable_video/`;
+  both build systems compile that same tree. **Building via SwiftPM requires Flutter 3.44 or
+  newer**, because the manifest depends on the `FlutterFramework` package that only Flutter 3.44+
+  generates. CocoaPods is unaffected and still works on older Flutter versions, so the
+  `environment: flutter` constraint is deliberately left permissive.
+
 ## 1.1.1
 
 - Fixed Android build error due to the deprecation of the `kotlin-android-extensions` plugin.

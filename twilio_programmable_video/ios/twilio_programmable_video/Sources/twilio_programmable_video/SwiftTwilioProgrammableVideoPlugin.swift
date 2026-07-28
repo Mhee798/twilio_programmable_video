@@ -2,6 +2,21 @@ import Flutter
 import UIKit
 import TwilioVideo
 
+// Flutter's generated registrants look this plugin up by the `pluginClass` declared
+// in pubspec.yaml: `TwilioProgrammableVideoPlugin`. A single Swift Package target
+// cannot mix Swift and ObjC sources, so the hand-written ObjC shim that used to
+// provide that name is gone and two aliases stand in for it:
+//
+//   - the `typealias` below, for the Swift Package Manager path.
+//     GeneratedPluginRegistrant.swift references the name as a *Swift* symbol, and
+//     `@objc(...)` renames the class for Objective-C only — without this the
+//     registrant fails with "cannot find 'TwilioProgrammableVideoPlugin' in scope".
+//   - `@objc(TwilioProgrammableVideoPlugin)`, for the CocoaPods path.
+//     GeneratedPluginRegistrant.m calls `[TwilioProgrammableVideoPlugin
+//     registerWithRegistrar:]` against the Objective-C runtime name.
+public typealias TwilioProgrammableVideoPlugin = SwiftTwilioProgrammableVideoPlugin
+
+@objc(TwilioProgrammableVideoPlugin)
 public class SwiftTwilioProgrammableVideoPlugin: NSObject, FlutterPlugin {
     static var pluginHandler: PluginHandler = PluginHandler()
 
