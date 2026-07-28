@@ -54,13 +54,47 @@ void main() {
   });
 
   group('.onDisconnected', () {
+    // A legitimate Disconnected always follows Connected: both the iOS and Android
+    // listeners report a failed connect through `onConnectFailure`, never through
+    // `onDisconnected`. Room relies on that to drop cross-call event bleed, so these
+    // tests have to emit Connected first to reproduce a real event sequence.
     test('should return correct `RoomDisconnectedEvent` after a `Disconnected` event arrives from the interface', () async {
       const exceptionModel = ModelInstances.twilioExceptionModel;
+      mockInterface!.addRoomEvent(const Connected(ModelInstances.roomModel));
+      await room!.onConnected.first;
+
       mockInterface!.addRoomEvent(const Disconnected(ModelInstances.roomModel, exceptionModel));
       final event = await room!.onDisconnected.first;
       expect(event.room, room);
       expect(event.exception?.code, exceptionModel.code);
       expect(event.exception?.message, exceptionModel.message);
+    });
+
+    /// Emits [model] as a `Disconnected` and reports whether `onDisconnected` fired.
+    /// `pumpEventQueue` settles it deterministically: `MockInterface` is a plain
+    /// `StreamController` and `Room._parseRoomEvents` is synchronous, so there is
+    /// nothing timer-based to wait on.
+    Future<bool> disconnectedFires(RoomModel model) async {
+      var fired = false;
+      final subscription = room!.onDisconnected.listen((_) => fired = true);
+
+      mockInterface!.addRoomEvent(Disconnected(model, ModelInstances.twilioExceptionModel));
+      await pumpEventQueue();
+
+      await subscription.cancel();
+      return fired;
+    }
+
+    test('should ignore a `Disconnected` event for a room that never connected', () async {
+      expect(await disconnectedFires(ModelInstances.roomModel), false);
+    });
+
+    test('should ignore a stale `Disconnected` event belonging to a different room', () async {
+      mockInterface!.addRoomEvent(const Connected(ModelInstances.roomModel));
+      await room!.onConnected.first;
+
+      expect(await disconnectedFires(ModelInstances.otherRoomModel), false);
+      expect(room!.sid, ModelInstances.roomModel.sid);
     });
   });
 

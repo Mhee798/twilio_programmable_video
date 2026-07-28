@@ -13,6 +13,17 @@ class ModelInstances {
     remoteParticipants: <RemoteParticipantModel>[],
   );
 
+  /// A second room, distinct from [roomModel] by `sid`. Used to exercise the
+  /// cross-call event-bleed guard in `Room._parseRoomEvents`.
+  static const otherRoomModel = RoomModel(
+    name: 'otherRoom',
+    sid: 'otherRoomSid',
+    mediaRegion: Region.jp1,
+    state: RoomState.DISCONNECTED,
+    localParticipant: localParticipantModel,
+    remoteParticipants: <RemoteParticipantModel>[],
+  );
+
   static const localParticipantModel = LocalParticipantModel(
     identity: 'identity',
     sid: 'sid',
