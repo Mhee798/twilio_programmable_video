@@ -26,6 +26,14 @@ Flutter/.last_build_id
 ServiceDefinitions.json
 Runner/GeneratedPluginRegistrant.*
 
+# Swift Package Manager. `flutter build` generates the FlutterFramework package and
+# the plugin package symlinks under Flutter/ephemeral/, all containing absolute local
+# paths. Package.resolved is deliberately NOT ignored here: this is an application, so
+# its resolved dependency versions should be committed and reproducible. (The plugin
+# package itself does ignore it — a library must not pin its dependents.)
+Flutter/ephemeral/
+**/.swiftpm/
+
 # Exceptions to above rules.
 !default.mode1v3
 !default.mode2v3
