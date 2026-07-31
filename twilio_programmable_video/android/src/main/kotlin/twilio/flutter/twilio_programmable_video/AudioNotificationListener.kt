@@ -11,6 +11,10 @@ import android.content.IntentFilter
 import android.media.AudioManager
 
 class AudioNotificationListener() : BaseListener() {
+    companion object {
+        private const val UNKNOWN_BLUETOOTH_DEVICE_NAME = "Bluetooth Device"
+    }
+
     private val TAG = "AudioNotificationListener"
     private val intentFilter: IntentFilter = IntentFilter()
     private val activeAudioPlayers: MutableSet<String> = mutableSetOf()
@@ -71,23 +75,41 @@ class AudioNotificationListener() : BaseListener() {
     fun listenForRouteChanges(context: Context) {
         debug("listenForRouteChanges")
         context.registerReceiver(receiver, intentFilter)
+
         // Binding the headset profile proxy needs BLUETOOTH_CONNECT from API 31 on.
-        // Without the grant only Bluetooth routing is unavailable, so keep the
-        // headset-plug receiver above working instead of failing the whole call.
+        // Skipping the bind when the permission is missing also means
+        // onServiceConnected below never runs, so its getConnectedDevices call — the
+        // one that used to take the whole app down — cannot be reached at all. The
+        // try/catch there stays as a second line of defence. Only Bluetooth routing
+        // is lost; the headset-plug receiver registered above keeps working.
+        if (!TwilioProgrammableVideoPlugin.pluginHandler.hasBluetoothConnectPermission()) {
+            debug("listenForRouteChanges => BLUETOOTH_CONNECT not granted, skipping headset profile proxy")
+            return
+        }
         try {
             BluetoothAdapter.getDefaultAdapter()?.getProfileProxy(context, getProfileProxy(), BluetoothProfile.HEADSET)
         } catch (e: SecurityException) {
-            debug("listenForRouteChanges => BLUETOOTH_CONNECT not granted: ${e.message}")
+            debug("listenForRouteChanges => SecurityException: ${e.message}")
         }
     }
 
     fun stopListeningForRouteChanges(context: Context) {
         debug("stopListeningForRouteChanges")
-        context.unregisterReceiver(receiver)
+        // Throws if the receiver was never registered — reachable by calling
+        // disableAudioSettings twice, or before any setAudioSettings.
+        try {
+            context.unregisterReceiver(receiver)
+        } catch (e: IllegalArgumentException) {
+            debug("stopListeningForRouteChanges => receiver was not registered: ${e.message}")
+        }
+        if (!TwilioProgrammableVideoPlugin.pluginHandler.hasBluetoothConnectPermission()) {
+            debug("stopListeningForRouteChanges => BLUETOOTH_CONNECT not granted, nothing to unbind")
+            return
+        }
         try {
             BluetoothAdapter.getDefaultAdapter()?.closeProfileProxy(BluetoothProfile.HEADSET, bluetoothProfile)
         } catch (e: SecurityException) {
-            debug("stopListeningForRouteChanges => BLUETOOTH_CONNECT not granted: ${e.message}")
+            debug("stopListeningForRouteChanges => SecurityException: ${e.message}")
         }
     }
 
@@ -136,15 +158,23 @@ class AudioNotificationListener() : BaseListener() {
 
     /**
      * BluetoothDevice.getName needs BLUETOOTH_CONNECT from API 31 on, and this is
-     * read inside a BroadcastReceiver where an uncaught SecurityException would
-     * tear the app down. Report an unknown name instead.
+     * read inside a BroadcastReceiver where an uncaught SecurityException would tear
+     * the app down.
+     *
+     * Falls back to a placeholder rather than null: the Dart layer turns a null
+     * deviceName into a SkippableAudioEvent
+     * (method_channel_programmable_video.dart), so returning null would make
+     * Bluetooth connect/disconnect events disappear from the stream entirely
+     * whenever the permission is missing. The route change is still worth reporting
+     * even when the device's name cannot be read.
      */
-    private fun bluetoothDeviceName(intent: Intent?): String? {
+    private fun bluetoothDeviceName(intent: Intent?): String {
         return try {
             intent?.getParcelableExtra<BluetoothDevice>(BluetoothDevice.EXTRA_DEVICE)?.name
+                ?: UNKNOWN_BLUETOOTH_DEVICE_NAME
         } catch (e: SecurityException) {
             debug("bluetoothDeviceName => BLUETOOTH_CONNECT not granted: ${e.message}")
-            null
+            UNKNOWN_BLUETOOTH_DEVICE_NAME
         }
     }
 

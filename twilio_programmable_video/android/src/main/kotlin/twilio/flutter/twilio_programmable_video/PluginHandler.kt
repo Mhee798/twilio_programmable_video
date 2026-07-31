@@ -1,9 +1,11 @@
 package twilio.flutter.twilio_programmable_video
 
+import android.Manifest
 import android.app.Activity
 import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothProfile
 import android.content.Context
+import android.content.pm.PackageManager
 import android.media.AudioAttributes
 import android.media.AudioDeviceInfo
 import android.media.AudioFocusRequest
@@ -406,14 +408,23 @@ class PluginHandler : MethodCallHandler, ActivityAware, BaseListener {
     }
 
     internal fun setBluetoothSco(on: Boolean) {
-        if (on) {
-            audioManager.startBluetoothSco()
-            debug("startBluetoothSco => on: $on\n" +
-                    "\tbluetoothPreferred: ${audioSettings.bluetoothPreferred}\n" +
-                    "\tscoOn: ${audioManager.isBluetoothScoOn}")
-        } else {
-            audioManager.stopBluetoothSco()
-            debug("stopBluetoothSco => on: $on\n\tbluetoothPreferred: ${audioSettings.bluetoothPreferred}\n\tscoOn: ${audioManager.isBluetoothScoOn}")
+        // start/stopBluetoothSco are deprecated from API 31 and OEM audio stacks
+        // throw a variety of runtime exceptions from them. One of the three call
+        // sites is inside AudioNotificationListener's BroadcastReceiver, where an
+        // uncaught throw takes the app down. Failing to switch SCO must not end the
+        // call, so swallow and log.
+        try {
+            if (on) {
+                audioManager.startBluetoothSco()
+                debug("startBluetoothSco => on: $on\n" +
+                        "\tbluetoothPreferred: ${audioSettings.bluetoothPreferred}\n" +
+                        "\tscoOn: ${audioManager.isBluetoothScoOn}")
+            } else {
+                audioManager.stopBluetoothSco()
+                debug("stopBluetoothSco => on: $on\n\tbluetoothPreferred: ${audioSettings.bluetoothPreferred}\n\tscoOn: ${audioManager.isBluetoothScoOn}")
+            }
+        } catch (e: RuntimeException) {
+            debug("setBluetoothSco => failed for on: $on: ${e.message}")
         }
     }
 
@@ -431,20 +442,37 @@ class PluginHandler : MethodCallHandler, ActivityAware, BaseListener {
     }
 
     /**
-     * Reading the Bluetooth headset profile state needs BLUETOOTH_CONNECT from API
-     * 31 on. This plugin declares the permission, but it is a runtime permission
-     * the host app may not have been granted yet and `getProfileConnectionState`
-     * throws SecurityException in that case. `getDefaultAdapter()` is also null on
-     * devices without Bluetooth. Either way report the headset as disconnected so
-     * audio still routes to the speaker or receiver rather than the call failing.
+     * BLUETOOTH_CONNECT is required from API 31 to read the Bluetooth headset state.
+     * Below that no runtime permission applies. Checked up front so the common
+     * ungranted case does not raise and log a SecurityException on every call.
      */
-    private fun bluetoothHeadsetConnectionState(): Int {
+    internal fun hasBluetoothConnectPermission(): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return true
+        return applicationContext.checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) ==
+                PackageManager.PERMISSION_GRANTED
+    }
+
+    /**
+     * The headset profile state, or `null` when it cannot be determined because
+     * BLUETOOTH_CONNECT was not granted.
+     *
+     * "Unknown" must not be collapsed into STATE_DISCONNECTED: `startBluetoothSco`
+     * needs MODIFY_AUDIO_SETTINGS rather than BLUETOOTH_CONNECT, so Bluetooth audio
+     * works without this permission, and treating unknown as "no headset" would pull
+     * audio off a headset SCO is happily routing to. A device with no Bluetooth
+     * adapter at all is genuinely disconnected, so that case does return a state.
+     */
+    private fun bluetoothHeadsetConnectionState(): Int? {
+        if (!hasBluetoothConnectPermission()) {
+            debug("bluetoothHeadsetConnectionState => BLUETOOTH_CONNECT not granted, state unknown")
+            return null
+        }
         return try {
             BluetoothAdapter.getDefaultAdapter()?.getProfileConnectionState(BluetoothProfile.HEADSET)
                     ?: BluetoothProfile.STATE_DISCONNECTED
         } catch (e: SecurityException) {
-            debug("bluetoothHeadsetConnectionState => BLUETOOTH_CONNECT not granted: ${e.message}")
-            BluetoothProfile.STATE_DISCONNECTED
+            debug("bluetoothHeadsetConnectionState => SecurityException: ${e.message}")
+            null
         }
     }
 
@@ -460,8 +488,12 @@ class PluginHandler : MethodCallHandler, ActivityAware, BaseListener {
         // the bluetoothProfileConnectionState will still be BluetoothProfile.STATE_CONNECTED
         // resulting in an edge case where audio will be routed via the receiver rather than the
         // bottom speaker.
+        //
+        // A null state means the headset state is unknown (no BLUETOOTH_CONNECT), so
+        // leave whatever route is active alone rather than forcing the speaker.
         if (!audioSettings.bluetoothPreferred ||
-                bluetoothProfileConnectionState != BluetoothProfile.STATE_CONNECTED) {
+                (bluetoothProfileConnectionState != null &&
+                        bluetoothProfileConnectionState != BluetoothProfile.STATE_CONNECTED)) {
             applySpeakerPhoneSettings()
         }
     }
