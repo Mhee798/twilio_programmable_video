@@ -8,16 +8,13 @@ class LocalDataTrackModel extends TrackModel {
   final int maxRetransmits;
 
   const LocalDataTrackModel({
-    required String name,
-    bool enabled = false,
+    required super.name,
+    super.enabled = false,
     this.ordered = false,
     this.reliable = false,
     this.maxPacketLifeTime = -1,
     this.maxRetransmits = -1,
-  }) : super(
-          name: name,
-          enabled: enabled,
-        );
+  });
 
   factory LocalDataTrackModel.fromEventChannelMap(Map<String, dynamic> map) {
     return LocalDataTrackModel(

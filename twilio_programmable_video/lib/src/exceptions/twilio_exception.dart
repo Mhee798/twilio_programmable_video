@@ -1,4 +1,4 @@
-part of twilio_programmable_video;
+part of '../parts.dart';
 
 /// Twilio Video SDK Exception.
 class TwilioException implements Exception {

@@ -4,7 +4,7 @@ version: 1.0.0
 publish_to: "none"
 
 environment:
-  sdk: ">=2.12.0 <3.0.0"
+  sdk: ">=3.0.0 <4.0.0"
 
 dependencies:
   flutter:
@@ -28,6 +28,10 @@ dependencies:
 
 dev_dependencies:
   flutter_driver:
+    sdk: flutter
+  flutter_test:
+    sdk: flutter
+  integration_test:
     sdk: flutter
   test: ^1.16.5
   twilio_programmable_video:

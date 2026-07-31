@@ -9,14 +9,14 @@ class RemoteDataTrackModel extends TrackModel {
   final String sid;
 
   const RemoteDataTrackModel({
-    required String name,
-    required bool enabled,
+    required super.name,
+    required super.enabled,
     required this.sid,
     this.ordered = false,
     this.reliable = false,
     this.maxPacketLifeTime = 0,
     this.maxRetransmits = 0,
-  }) : super(name: name, enabled: enabled);
+  });
 
   factory RemoteDataTrackModel.fromEventChannelMap(Map<String, dynamic> map) {
     return RemoteDataTrackModel(

@@ -1,4 +1,4 @@
-part of twilio_programmable_video;
+part of 'parts.dart';
 
 /// A remote video track publication represents a [RemoteVideoTrack] that has been shared to a [Room].
 class RemoteVideoTrackPublication implements VideoTrackPublication {

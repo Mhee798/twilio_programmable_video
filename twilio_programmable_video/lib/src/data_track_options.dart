@@ -1,4 +1,4 @@
-part of twilio_programmable_video;
+part of 'parts.dart';
 
 class DataTrackOptions {
   /// Default value for max packet life time.

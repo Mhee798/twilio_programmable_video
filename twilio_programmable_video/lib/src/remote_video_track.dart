@@ -1,4 +1,4 @@
-part of twilio_programmable_video;
+part of 'parts.dart';
 
 /// A remote video track represents a remote video source.
 class RemoteVideoTrack extends VideoTrack {
@@ -11,10 +11,10 @@ class RemoteVideoTrack extends VideoTrack {
 
   RemoteVideoTrack(
     this._sid,
-    _enabled,
-    _name,
+    bool enabled,
+    String name,
     this._remoteParticipant,
-  ) : super(_enabled, _name);
+  ) : super(enabled, name);
 
   /// Construct from a [RemoteVideoTrackModel].
   factory RemoteVideoTrack._fromModel(RemoteVideoTrackModel model, RemoteParticipant remoteParticipant) {

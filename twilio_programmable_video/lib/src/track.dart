@@ -1,4 +1,4 @@
-part of twilio_programmable_video;
+part of 'parts.dart';
 
 /// Abstract base class for tracks.
 abstract class Track {

@@ -1,4 +1,4 @@
-part of twilio_programmable_video;
+part of 'parts.dart';
 
 /// A remote audio track represents a remote audio source.
 class RemoteAudioTrack extends AudioTrack {
@@ -7,7 +7,7 @@ class RemoteAudioTrack extends AudioTrack {
   /// Returns the server identifier. This value uniquely identifies the remote audio track within the scope of a [Room].
   String get sid => _sid;
 
-  RemoteAudioTrack(this._sid, _enabled, _name) : super(_enabled, _name);
+  RemoteAudioTrack(this._sid, bool enabled, String name) : super(enabled, name);
 
   /// Construct from a [RemoteAudioTrackModel].
   factory RemoteAudioTrack._fromModel(RemoteAudioTrackModel model) {

@@ -1,5 +1,5 @@
 @JS()
-library local_participant;
+library;
 
 import 'package:js/js.dart';
 import 'package:twilio_programmable_video_web/src/interop/classes/js_map.dart';

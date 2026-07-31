@@ -18,9 +18,9 @@ class LocalAudioTrackPublished extends BaseLocalParticipantEvent {
   final LocalAudioTrackPublicationModel publicationModel;
 
   const LocalAudioTrackPublished(
-    LocalParticipantModel localParticipantModel,
+    LocalParticipantModel super.localParticipantModel,
     this.publicationModel,
-  ) : super(localParticipantModel);
+  );
 
   @override
   String toString() => 'LocalAudioTrackPublished: { localParticipantModel: $localParticipantModel, publicationModel: $publicationModel }';
@@ -46,9 +46,9 @@ class LocalDataTrackPublished extends BaseLocalParticipantEvent {
   final LocalDataTrackPublicationModel publicationModel;
 
   const LocalDataTrackPublished(
-    LocalParticipantModel localParticipantModel,
+    LocalParticipantModel super.localParticipantModel,
     this.publicationModel,
-  ) : super(localParticipantModel);
+  );
 
   @override
   String toString() => 'LocalDataTrackPublished: { localParticipantModel: $localParticipantModel, publicationModel: $publicationModel }';
@@ -74,9 +74,9 @@ class LocalVideoTrackPublished extends BaseLocalParticipantEvent {
   final LocalVideoTrackPublicationModel publicationModel;
 
   const LocalVideoTrackPublished(
-    LocalParticipantModel localParticipantModel,
+    LocalParticipantModel super.localParticipantModel,
     this.publicationModel,
-  ) : super(localParticipantModel);
+  );
 
   @override
   String toString() => 'LocalVideoTrackPublished: { localParticipantModel: $localParticipantModel, publicationModel: $publicationModel }';
@@ -102,9 +102,9 @@ class LocalNetworkQualityLevelChanged extends BaseLocalParticipantEvent {
   final NetworkQualityLevel networkQualityLevel;
 
   const LocalNetworkQualityLevelChanged(
-    LocalParticipantModel localParticipantModel,
+    LocalParticipantModel super.localParticipantModel,
     this.networkQualityLevel,
-  ) : super(localParticipantModel);
+  );
 
   @override
   String toString() => 'LocalNetworkQualityLevelChanged: { localParticipantModel: $localParticipantModel, networkQualityLevel: $networkQualityLevel}';

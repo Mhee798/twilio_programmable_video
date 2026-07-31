@@ -1,4 +1,4 @@
-part of twilio_programmable_video;
+part of 'parts.dart';
 
 /// Entry point for the Twilio Programmable Video.
 class TwilioProgrammableVideo {

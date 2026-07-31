@@ -1,4 +1,4 @@
-part of twilio_programmable_video;
+part of 'parts.dart';
 
 /// Generic video capturing interface.
 abstract class VideoCapturer {

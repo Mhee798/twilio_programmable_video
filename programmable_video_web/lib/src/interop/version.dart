@@ -1,5 +1,5 @@
 @JS()
-library interop;
+library;
 
 import 'package:js/js.dart';
 import 'package:version/version.dart';

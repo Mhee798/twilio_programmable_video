@@ -1,4 +1,4 @@
-part of twilio_programmable_video;
+part of 'parts.dart';
 
 /// A remote data track publication represents a [RemoteDataTrack] that has been shared to a [Room].
 class RemoteDataTrackPublication implements DataTrackPublication {

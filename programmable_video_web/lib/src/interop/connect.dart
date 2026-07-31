@@ -1,5 +1,5 @@
 @JS()
-library interop;
+library;
 
 import 'package:collection/collection.dart';
 import 'package:enum_to_string/enum_to_string.dart';

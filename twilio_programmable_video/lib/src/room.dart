@@ -1,4 +1,4 @@
-part of twilio_programmable_video;
+part of 'parts.dart';
 
 /// A [Room] represents a media session with zero or more remote participants. Media shared by any one [RemoteParticipant] is distributed equally to all other participants.
 class Room {

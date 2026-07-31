@@ -6,8 +6,11 @@ repository: https://gitlab.com/twilio-flutter/programmable-video/-/tree/master/p
 issue_tracker: https://gitlab.com/twilio-flutter/programmable-video/issues
 
 environment:
-  sdk: ">=2.12.0 <3.0.0"
-  flutter: ">=1.17.0"
+  sdk: ">=3.0.0 <4.0.0"
+  # Flutter 3.10 is the first release that ships Dart 3.0; anything older cannot
+  # satisfy the sdk constraint above anyway, so stating it here just produces a
+  # clearer resolution error.
+  flutter: ">=3.10.0"
 
 dependencies:
   flutter:
@@ -25,7 +28,7 @@ dev_dependencies:
     sdk: flutter
   mockito: ^5.0.6
   build_runner: ^2.0.1
-  flutter_lints: ^1.0.4
+  flutter_lints: ^6.0.0
 
 flutter:
   plugin:

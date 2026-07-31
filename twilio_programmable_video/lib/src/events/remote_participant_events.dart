@@ -1,4 +1,4 @@
-part of twilio_programmable_video;
+part of '../parts.dart';
 
 /// The base event class for [RemoteParticipant] events.
 class RemoteParticipantEvent {
@@ -15,9 +15,9 @@ class RemoteAudioTrackEvent extends RemoteParticipantEvent {
   final RemoteAudioTrackPublication remoteAudioTrackPublication;
 
   RemoteAudioTrackEvent(
-    RemoteParticipant remoteParticipant,
+    super.remoteParticipant,
     this.remoteAudioTrackPublication,
-  ) : super(remoteParticipant);
+  );
 }
 
 class RemoteAudioTrackSubscriptionEvent extends RemoteAudioTrackEvent {
@@ -25,10 +25,10 @@ class RemoteAudioTrackSubscriptionEvent extends RemoteAudioTrackEvent {
   final RemoteAudioTrack _remoteAudioTrack;
 
   RemoteAudioTrackSubscriptionEvent(
-    RemoteParticipant remoteParticipant,
-    RemoteAudioTrackPublication remoteAudioTrackPublication,
+    super.remoteParticipant,
+    super.remoteAudioTrackPublication,
     this._remoteAudioTrack,
-  ) : super(remoteParticipant, remoteAudioTrackPublication);
+  );
 
   RemoteAudioTrack get remoteAudioTrack => _remoteAudioTrack;
 }
@@ -38,10 +38,10 @@ class RemoteAudioTrackSubscriptionFailedEvent extends RemoteAudioTrackEvent {
   final TwilioException exception;
 
   RemoteAudioTrackSubscriptionFailedEvent(
-    RemoteParticipant remoteParticipant,
-    RemoteAudioTrackPublication remoteAudioTrackPublication,
+    super.remoteParticipant,
+    super.remoteAudioTrackPublication,
     this.exception,
-  ) : super(remoteParticipant, remoteAudioTrackPublication);
+  );
 }
 //#endregion
 
@@ -52,9 +52,9 @@ class RemoteDataTrackEvent extends RemoteParticipantEvent {
   final RemoteDataTrackPublication remoteDataTrackPublication;
 
   RemoteDataTrackEvent(
-    RemoteParticipant remoteParticipant,
+    super.remoteParticipant,
     this.remoteDataTrackPublication,
-  ) : super(remoteParticipant);
+  );
 }
 
 class RemoteDataTrackSubscriptionEvent extends RemoteDataTrackEvent {
@@ -62,10 +62,10 @@ class RemoteDataTrackSubscriptionEvent extends RemoteDataTrackEvent {
   final RemoteDataTrack remoteDataTrack;
 
   RemoteDataTrackSubscriptionEvent(
-    RemoteParticipant remoteParticipant,
-    RemoteDataTrackPublication remoteDataTrackPublication,
+    super.remoteParticipant,
+    super.remoteDataTrackPublication,
     this.remoteDataTrack,
-  ) : super(remoteParticipant, remoteDataTrackPublication);
+  );
 }
 
 class RemoteDataTrackSubscriptionFailedEvent extends RemoteDataTrackEvent {
@@ -73,10 +73,10 @@ class RemoteDataTrackSubscriptionFailedEvent extends RemoteDataTrackEvent {
   final TwilioException exception;
 
   RemoteDataTrackSubscriptionFailedEvent(
-    RemoteParticipant remoteParticipant,
-    RemoteDataTrackPublication remoteDataTrackPublication,
+    super.remoteParticipant,
+    super.remoteDataTrackPublication,
     this.exception,
-  ) : super(remoteParticipant, remoteDataTrackPublication);
+  );
 }
 
 //#endregion
@@ -102,9 +102,9 @@ class RemoteVideoTrackEvent extends RemoteParticipantEvent {
   final RemoteVideoTrackPublication remoteVideoTrackPublication;
 
   RemoteVideoTrackEvent(
-    RemoteParticipant remoteParticipant,
+    super.remoteParticipant,
     this.remoteVideoTrackPublication,
-  ) : super(remoteParticipant);
+  );
 }
 
 class RemoteVideoTrackSubscriptionEvent extends RemoteVideoTrackEvent {
@@ -112,10 +112,10 @@ class RemoteVideoTrackSubscriptionEvent extends RemoteVideoTrackEvent {
   final RemoteVideoTrack remoteVideoTrack;
 
   RemoteVideoTrackSubscriptionEvent(
-    RemoteParticipant remoteParticipant,
-    RemoteVideoTrackPublication remoteVideoTrackPublication,
+    super.remoteParticipant,
+    super.remoteVideoTrackPublication,
     this.remoteVideoTrack,
-  ) : super(remoteParticipant, remoteVideoTrackPublication);
+  );
 }
 
 class RemoteVideoTrackSubscriptionFailedEvent extends RemoteVideoTrackEvent {
@@ -123,10 +123,10 @@ class RemoteVideoTrackSubscriptionFailedEvent extends RemoteVideoTrackEvent {
   final TwilioException exception;
 
   RemoteVideoTrackSubscriptionFailedEvent(
-    RemoteParticipant remoteParticipant,
-    RemoteVideoTrackPublication remoteVideoTrackPublication,
+    super.remoteParticipant,
+    super.remoteVideoTrackPublication,
     this.exception,
-  ) : super(remoteParticipant, remoteVideoTrackPublication);
+  );
 }
 
 //#endregion

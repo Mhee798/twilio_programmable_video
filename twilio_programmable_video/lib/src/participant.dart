@@ -1,4 +1,4 @@
-part of twilio_programmable_video;
+part of 'parts.dart';
 
 /// Interface that represents user in a [Room].
 abstract class Participant {

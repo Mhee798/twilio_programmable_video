@@ -5,13 +5,10 @@ class RemoteVideoTrackModel extends TrackModel {
   final String sid;
 
   const RemoteVideoTrackModel({
-    required String name,
-    required bool enabled,
+    required super.name,
+    required super.enabled,
     required this.sid,
-  }) : super(
-          name: name,
-          enabled: enabled,
-        );
+  });
 
   factory RemoteVideoTrackModel.fromEventChannelMap(Map<String, dynamic> map) {
     return RemoteVideoTrackModel(

@@ -1,5 +1,5 @@
 @JS()
-library logger;
+library;
 
 import 'package:js/js.dart';
 

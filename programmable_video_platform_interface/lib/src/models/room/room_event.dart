@@ -15,9 +15,9 @@ class ConnectFailure extends BaseRoomEvent {
   final TwilioExceptionModel? exception;
 
   const ConnectFailure(
-    RoomModel roomModel,
+    RoomModel super.roomModel,
     this.exception,
-  ) : super(roomModel);
+  );
 
   @override
   String toString() => 'ConnectFailure: { roomModel: $roomModel, exception: $exception }';
@@ -25,7 +25,7 @@ class ConnectFailure extends BaseRoomEvent {
 
 /// Use this event when the LocalParticipant is connected to the Room.
 class Connected extends BaseRoomEvent {
-  const Connected(RoomModel roomModel) : super(roomModel);
+  const Connected(RoomModel super.roomModel);
 
   @override
   String toString() => 'Connected: { roomModel: $roomModel }';
@@ -36,9 +36,9 @@ class Disconnected extends BaseRoomEvent {
   final TwilioExceptionModel? exception;
 
   const Disconnected(
-    RoomModel roomModel,
+    RoomModel super.roomModel,
     this.exception,
-  ) : super(roomModel);
+  );
 
   @override
   String toString() => 'Disconnected: { roomModel: $roomModel, exception: $exception }';
@@ -49,9 +49,9 @@ class ParticipantConnected extends BaseRoomEvent {
   final RemoteParticipantModel connectedParticipant;
 
   const ParticipantConnected(
-    RoomModel roomModel,
+    RoomModel super.roomModel,
     this.connectedParticipant,
-  ) : super(roomModel);
+  );
 
   @override
   String toString() => 'ParticipantConnected: { roomModel: $roomModel, connectedParticipant: $connectedParticipant }';
@@ -62,9 +62,9 @@ class ParticipantDisconnected extends BaseRoomEvent {
   final RemoteParticipantModel disconnectedParticipant;
 
   const ParticipantDisconnected(
-    RoomModel roomModel,
+    RoomModel super.roomModel,
     this.disconnectedParticipant,
-  ) : super(roomModel);
+  );
 
   @override
   String toString() => 'ParticipantDisconnected: { roomModel: $roomModel, disconnectedParticipant: $disconnectedParticipant }';
@@ -72,7 +72,7 @@ class ParticipantDisconnected extends BaseRoomEvent {
 
 /// Use this event when the LocalParticipant reconnects to the Room.
 class Reconnected extends BaseRoomEvent {
-  const Reconnected(RoomModel roomModel) : super(roomModel);
+  const Reconnected(RoomModel super.roomModel);
 
   @override
   String toString() => 'Reconnected: { roomModel: $roomModel }';
@@ -83,9 +83,9 @@ class Reconnecting extends BaseRoomEvent {
   final TwilioExceptionModel? exception;
 
   const Reconnecting(
-    RoomModel roomModel,
+    RoomModel super.roomModel,
     this.exception,
-  ) : super(roomModel);
+  );
 
   @override
   String toString() => 'Reconnecting: { roomModel: $roomModel, exception: $exception }';
@@ -93,7 +93,7 @@ class Reconnecting extends BaseRoomEvent {
 
 ///Use this event when recording of the LocalParticipant has started.
 class RecordingStarted extends BaseRoomEvent {
-  const RecordingStarted(RoomModel roomModel) : super(roomModel);
+  const RecordingStarted(RoomModel super.roomModel);
 
   @override
   String toString() => 'RecordingStarted: { roomModel: $roomModel }';
@@ -101,7 +101,7 @@ class RecordingStarted extends BaseRoomEvent {
 
 ///Use this event when recording of the LocalParticipant has stopped.
 class RecordingStopped extends BaseRoomEvent {
-  const RecordingStopped(RoomModel roomModel) : super(roomModel);
+  const RecordingStopped(RoomModel super.roomModel);
 
   @override
   String toString() => 'RecordingStopped: { roomModel: $roomModel }';
@@ -112,9 +112,9 @@ class DominantSpeakerChanged extends BaseRoomEvent {
   final RemoteParticipantModel? dominantSpeaker;
 
   const DominantSpeakerChanged(
-    RoomModel roomModel,
+    RoomModel super.roomModel,
     this.dominantSpeaker,
-  ) : super(roomModel);
+  );
 
   @override
   String toString() => 'DominantSpeakerChanged: { roomModel: $roomModel, dominantSpeaker: $dominantSpeaker }';

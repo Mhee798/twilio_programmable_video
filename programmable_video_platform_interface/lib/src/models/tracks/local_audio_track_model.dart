@@ -2,9 +2,9 @@ import 'package:twilio_programmable_video_platform_interface/src/models/model_ex
 
 class LocalAudioTrackModel extends TrackModel {
   const LocalAudioTrackModel({
-    required String name,
-    required bool enabled,
-  }) : super(name: name, enabled: enabled);
+    required super.name,
+    required super.enabled,
+  });
 
   factory LocalAudioTrackModel.fromEventChannelMap(Map<String, dynamic> map) {
     return LocalAudioTrackModel(
