@@ -54,15 +54,6 @@
   Gradle Plugin previously ran at 1.9.23 while the standard library resolved to 2.1.x.
 - **Android**: removed the `ndkVersion` pin. The plugin has no native sources of its own, so the pin
   only asked every consuming app to install and declare that exact NDK.
-- **iOS**: `getStats()` outside a connected `Room` never completed — the native handler reached the
-  SDK through an optional chain, so with no `Room` it returned without ever fulfilling the
-  `FlutterResult`, and the Dart future stayed pending forever. A *disconnected* `Room` hangs the same
-  way: `TVIRoom getStatsWithBlock:` does not deliver reports in that state, and iOS (unlike Android)
-  keeps its `Room` reference after `disconnect()`, so a poll after a call ended hit it too. Every
-  non-connected state now resolves to `null`, which is what `programmable_video.dart` already
-  expected and what Android returns. This is the iOS counterpart of the Android `getStats` fix
-  above; `example/integration_test/plugin_smoke_test.dart` covers the never-connected case and now
-  passes on iOS.
 - **iOS BREAKING**: the minimum supported iOS version is now **13.0** (was 11.0). Apps targeting
   a lower version fail at `pod install` with `The platform of the target 'Runner' (iOS 11.0) is not
   compatible with twilio_programmable_video`. Set `platform :ios, '13.0'` in your `ios/Podfile` and
@@ -73,6 +64,29 @@
   `@objc` and to Swift via a `typealias`, so the generated plugin registrants keep working. Only
   hand-written Objective-C that `#import`s the header directly is affected — replace the import with
   `@import twilio_programmable_video;`.
+- **iOS**: `getStats()` outside a connected `Room` never completed — the native handler reached the
+  SDK through an optional chain, so with no `Room` it returned without ever fulfilling the
+  `FlutterResult`, and the Dart future stayed pending forever. A *disconnected* `Room` hangs the same
+  way: `TVIRoom getStatsWithBlock:` does not deliver reports in that state, and iOS (unlike Android)
+  keeps its `Room` reference after `disconnect()`, so a poll after a call ended hit it too. Every
+  non-connected state now resolves to `null`, which is what `programmable_video.dart` already
+  expected and what Android returns. This is the iOS counterpart of the Android `getStats` fix
+  above; `example/integration_test/plugin_smoke_test.dart` covers the never-connected case and now
+  passes on iOS.
+- **iOS BREAKING**: bumped `TwilioVideo` to `>= 5.11.3, < 6.0` (resolving to 5.11.3, was
+  `~> 4.6`/4.6.3) in both the podspec and `Package.swift`. The only API the Video SDK removed
+  between the two versions is `IsacCodec`, dropped in 5.8.0 when the SDK moved to WebRTC 112 — so
+  passing `IsacCodec()` in `preferredAudioCodecs` now selects opus instead of iSAC (and asking for
+  both no longer produces a preference list with opus twice). Android has behaved that way since the
+  7.7.0 bump, so the two platforms agree again. Also note 5.x drops the `armv7` device and `i386`
+  simulator slices — the xcframework ships `ios-arm64` and `ios-arm64_x86_64-simulator` — which
+  matters for apps still building 32-bit device slices.
+  Apps with an existing `ios/Podfile.lock` cannot pick this up with `pod install` — CocoaPods
+  refuses to change a development pod's constraints from a lockfile and tells you to run
+  **`pod update TwilioVideo`** instead. SwiftPM consumers need no action.
+- **iOS**: replaced the deprecated `AudioDeviceFormatChanged` with `AudioDeviceReinitialize` in
+  `AVAudioEngineDevice`. TwilioVideo deprecated the former in 5.4.0 and will remove it in 6.0; the
+  two are equivalent for this call site, so custom audio device behaviour is unchanged.
 - **iOS**: the plugin now ships a `Package.swift`, so it builds under Swift Package Manager in
   addition to CocoaPods. Swift sources moved to `ios/twilio_programmable_video/Sources/twilio_programmable_video/`;
   both build systems compile that same tree. **Building via SwiftPM requires Flutter 3.44 or

@@ -1282,7 +1282,7 @@ public class AVAudioEngineDevice: NSObject, AudioDevice {
         // Nothing to process while we are interrupted. We will interrogate the AVAudioSession once the interruption ends.
         if self.interrupted || self.audioUnit == nil {
             debug("handleValidRouteChange => do nothing\n\tinterrupted: \(self.interrupted)\n\taudioUnit: \(self.audioUnit)\n\totherAudioPlaying: \(AVAudioSession.sharedInstance().isOtherAudioPlaying)")
-            self.callAudioDeviceFormatChangedOnStart()
+            self.callAudioDeviceReinitializeOnStart()
             return
         }
 
@@ -1293,15 +1293,15 @@ public class AVAudioEngineDevice: NSObject, AudioDevice {
             self.handleFormatChange("handleValidRouteChange")
             if let context = self.deviceContext() {
                 // Video SDK is connected
-                debug("handleValidRouteChange => BEGIN AudioDeviceFormatChanged")
+                debug("handleValidRouteChange => BEGIN AudioDeviceReinitialize")
                 // Notify Video SDK about the format change
                 self.notifyVideoSdkOfFormatChange(context: context)
-                debug("handleValidRouteChange => END AudioDeviceFormatChanged")
+                debug("handleValidRouteChange => END AudioDeviceReinitialize")
             } else {
                 // Video SDK is disconnected or connecting
-                debug("handleValidRouteChange => BEGIN handleFormatChange")
-                self.callAudioDeviceFormatChangedOnStart()
-                debug("handleValidRouteChange => END handleFormatChange")
+                debug("handleValidRouteChange => BEGIN deferred AudioDeviceReinitialize")
+                self.callAudioDeviceReinitializeOnStart()
+                debug("handleValidRouteChange => END deferred AudioDeviceReinitialize")
                 if self.audioPlayerNodeManager.anyPaused() {
                     debug("handleValidRouteChange => BEGIN startRenderingInternal to resume audio nodes")
                     self.startRenderingInternal(context: self.deviceContext())
@@ -1325,7 +1325,7 @@ public class AVAudioEngineDevice: NSObject, AudioDevice {
         return result
     }
 
-    func callAudioDeviceFormatChangedOnStart() {
+    func callAudioDeviceReinitializeOnStart() {
         self.didFormatChangeWhileDisconnected = true
     }
 
@@ -1334,11 +1334,15 @@ public class AVAudioEngineDevice: NSObject, AudioDevice {
             debug("notifyVideoSdkOfFormatChange")
             self.didFormatChangeWhileDisconnected = false
             // Notify Video SDK about the format change
-            // `AudioDeviceFormatChanged` will cause the Video SDK to
+            // `AudioDeviceReinitialize` will cause the Video SDK to
             // read the new rendering/capturing formats from the AVAudioEngineDevice
             // using `renderFormat()` and `captureFormat()`, and subsequently
             // instruct the AVAudioEngineDevice to stop/start capturing and rendering.
-            AudioDeviceFormatChanged(context: context)
+            // It replaces `AudioDeviceFormatChanged`, which TwilioVideo deprecated in
+            // 5.4.0 and will remove in 6.0. Both take the same context and do the same
+            // thing here; `AudioDeviceReinitialize` is additionally the documented call
+            // for route changes, interruptions ending and the device being re-enabled.
+            AudioDeviceReinitialize(context: context)
         }
     }
 

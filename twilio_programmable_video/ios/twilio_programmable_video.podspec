@@ -16,7 +16,9 @@ Pod::Spec.new do |s|
   s.source_files = 'twilio_programmable_video/Sources/twilio_programmable_video/**/*.swift'
 
   s.dependency 'Flutter'
-  s.dependency 'TwilioVideo', '~> 4.6'
+  # Keep in sync with the twilio-video-ios range in twilio_programmable_video/Package.swift.
+  # Two requirements instead of `~> 5.11.3`, which CocoaPods caps at `< 5.12.0`.
+  s.dependency 'TwilioVideo', '>= 5.11.3', '< 6.0'
 
   # Keep in sync with `platforms:` in twilio_programmable_video/Package.swift — SwiftPM
   # manifests are sandboxed, so they cannot read a shared value from here or pubspec.

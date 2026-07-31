@@ -704,17 +704,27 @@ public class PluginHandler: BaseListener {
             if let preferredAudioCodecs = optionsObj["preferredAudioCodecs"] as? [String: String] {
                 var audioCodecs: [AudioCodec] = []
                 for (_, audioCodec) in preferredAudioCodecs {
+                    let codec: AudioCodec
                     switch audioCodec {
-                    case "isac":
-                        audioCodecs.append(IsacCodec())
                     case "PCMA":
-                        audioCodecs.append(PcmaCodec())
+                        codec = PcmaCodec()
                     case "PCMU":
-                        audioCodecs.append(PcmuCodec())
+                        codec = PcmuCodec()
                     case "G722":
-                        audioCodecs.append(G722Codec())
+                        codec = G722Codec()
+                    // "isac" lands here too: `IsacCodec` was removed in TwilioVideo 5.8.0
+                    // along with the WebRTC 112 upgrade, which dropped iSAC, and Android
+                    // lost it in Twilio 7.7.0 for the same reason, so both platforms map
+                    // that request onto opus.
                     default: // or opus
-                        audioCodecs.append(OpusCodec())
+                        codec = OpusCodec()
+                    }
+
+                    // Requesting both "isac" and "opus" now yields the same codec twice,
+                    // and `preferredAudioCodecs` is an ordered preference list, so keep the
+                    // first occurrence rather than handing the SDK a duplicate entry.
+                    if !audioCodecs.contains(where: { $0.name == codec.name }) {
+                        audioCodecs.append(codec)
                     }
                 }
                 self.debug("connect => setting preferredAudioCodecs to '\(audioCodecs)'")
