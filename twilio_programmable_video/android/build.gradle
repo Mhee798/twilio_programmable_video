@@ -2,16 +2,19 @@ group 'twilio.flutter.twilio_programmable_video'
 version '1.0-SNAPSHOT'
 
 buildscript {
-    ext.kotlin_version = '2.1.+'
-    ext.twilio_video_version = '7.8.+'
+    // Pinned rather than floating ('2.1.+') so builds are reproducible.
+    ext.kotlin_version = '2.1.21'
+    ext.twilio_video_version = '7.10.4'
     repositories {
         google()
         mavenCentral()
     }
 
     dependencies {
-        classpath 'com.android.tools.build:gradle:8.13.0'
-        classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:1.9.23"
+        classpath 'com.android.tools.build:gradle:8.13.2'
+        // Must match kotlin_version — the compiler and the stdlib it compiles
+        // against have to be the same release.
+        classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlin_version"
     }
 }
 
@@ -28,14 +31,25 @@ apply plugin: 'kotlin-parcelize'
 
 android {
     namespace "twilio.flutter.twilio_programmable_video"
+    // Raising this forces every consuming app to raise its own compileSdk in the
+    // same release: AGP fails the app build with "requires ... to be compiled
+    // against a higher Android SDK version". Keep it at the level the plugin
+    // actually needs and bump it only in a release that announces the break.
     compileSdkVersion 35
-    ndkVersion = "29.0.14206865"
+
+    // No ndkVersion here on purpose. The plugin ships no native sources of its own
+    // (no CMakeLists.txt, no .c/.cpp, no jni/, no externalNativeBuild) — Twilio
+    // delivers prebuilt .so files, and bundling those needs no NDK. Pinning one
+    // only made Flutter tell every consumer to install and declare that exact NDK.
 
     sourceSets {
         main.java.srcDirs += 'src/main/kotlin'
     }
     defaultConfig {
         minSdk 21
+        // For a com.android.library module targetSdk only affects instrumentation
+        // tests; the consuming app's targetSdk is what governs runtime behaviour.
+        // It must not exceed compileSdkVersion above.
         targetSdk 35
         versionCode 1
         versionName "1.0"
@@ -59,6 +73,10 @@ android {
 }
 
 dependencies {
-    implementation "org.jetbrains.kotlin:kotlin-stdlib-jdk7:$kotlin_version"
+    // kotlin-stdlib-jdk7/-jdk8 were folded into kotlin-stdlib in Kotlin 1.8; the old
+    // coordinates now resolve to an empty pass-through artifact. Declared explicitly
+    // rather than dropped so the version stays pinned even if a consuming build sets
+    // kotlin.stdlib.default.dependency=false.
+    implementation "org.jetbrains.kotlin:kotlin-stdlib:$kotlin_version"
     implementation "com.twilio:video-android:$twilio_video_version"
 }
