@@ -222,7 +222,15 @@ class PluginHandler : MethodCallHandler, ActivityAware, BaseListener {
         val localVideoTrack = TwilioProgrammableVideoPlugin.localVideoTracks[localVideoTrackName]
                 ?: return result.error("NOT_FOUND", "No LocalVideoTrack found with the name '$localVideoTrackName'", null)
 
-        getLocalParticipant()?.publishTrack(localVideoTrack)
+        // Without a LocalParticipant there is nothing to publish to. Safe-calling
+        // through and still dropping the track from the map would report success while
+        // publishing nothing, and would leave the track unreachable: the later
+        // release() looks it up by name, fails with NOT_FOUND and the camera stays
+        // held. localVideoTrackUnpublish already answers NOT_FOUND in this situation.
+        val localParticipant = getLocalParticipant()
+                ?: return result.error("NOT_FOUND", "No LocalParticipant found. Connect to a Room before publishing '$localVideoTrackName'", null)
+
+        localParticipant.publishTrack(localVideoTrack)
 
         TwilioProgrammableVideoPlugin.localVideoTracks -= localVideoTrackName
 
@@ -400,19 +408,32 @@ class PluginHandler : MethodCallHandler, ActivityAware, BaseListener {
                 "\tanyPlaying: $anyPlaying")
         if (isConnected || anyPlaying) {
             Handler(Looper.getMainLooper()).postDelayed({
-                setBluetoothSco(audioSettings.bluetoothPreferred)
-                audioManager.isBluetoothScoOn = audioSettings.bluetoothPreferred
+                // This runs as a bare Runnable on the main looper: anything thrown here
+                // has no caller to catch it and goes straight to the uncaught handler.
+                // setBluetoothSco guards itself, but the deprecated isBluetoothScoOn
+                // setter on the next line hits the same audio service in the same state,
+                // so guarding only the first call would still let the process die.
+                try {
+                    setBluetoothSco(audioSettings.bluetoothPreferred)
+                    audioManager.isBluetoothScoOn = audioSettings.bluetoothPreferred
+                } catch (e: RuntimeException) {
+                    debug("applyBluetoothSettings => failed to apply SCO routing: ${e.message}")
+                }
                 debug("applyBluetoothSettings END => on: ${audioSettings.bluetoothPreferred} scoOn: ${audioManager.isBluetoothScoOn}")
             }, 1000)
         }
     }
 
     internal fun setBluetoothSco(on: Boolean) {
-        // start/stopBluetoothSco are deprecated from API 31 and OEM audio stacks
-        // throw a variety of runtime exceptions from them. One of the three call
-        // sites is inside AudioNotificationListener's BroadcastReceiver, where an
-        // uncaught throw takes the app down. Failing to switch SCO must not end the
-        // call, so swallow and log.
+        // start/stopBluetoothSco are deprecated from API 31 and OEM audio stacks are
+        // known to reject them with IllegalStateException or SecurityException. One of
+        // the three call sites is inside AudioNotificationListener's BroadcastReceiver,
+        // where an uncaught throw takes the app down, and failing to switch SCO must not
+        // end the call — but only those two types are swallowed. A broader catch would
+        // also hide genuine defects here, and the `disconnect` call site cannot report
+        // the failure to Dart anyway: the Room really did disconnect, so answering with
+        // an error would be a lie. The cost of a swallowed failure is that SCO may stay
+        // held, keeping a headset in call mode until Bluetooth is toggled.
         try {
             if (on) {
                 audioManager.startBluetoothSco()
@@ -423,8 +444,10 @@ class PluginHandler : MethodCallHandler, ActivityAware, BaseListener {
                 audioManager.stopBluetoothSco()
                 debug("stopBluetoothSco => on: $on\n\tbluetoothPreferred: ${audioSettings.bluetoothPreferred}\n\tscoOn: ${audioManager.isBluetoothScoOn}")
             }
-        } catch (e: RuntimeException) {
-            debug("setBluetoothSco => failed for on: $on: ${e.message}")
+        } catch (e: IllegalStateException) {
+            debug("setBluetoothSco => rejected for on: $on: ${e.message}")
+        } catch (e: SecurityException) {
+            debug("setBluetoothSco => not permitted for on: $on: ${e.message}")
         }
     }
 
@@ -453,26 +476,31 @@ class PluginHandler : MethodCallHandler, ActivityAware, BaseListener {
     }
 
     /**
-     * The headset profile state, or `null` when it cannot be determined because
-     * BLUETOOTH_CONNECT was not granted.
+     * The headset profile state, reported as STATE_DISCONNECTED whenever it cannot be
+     * read — no BLUETOOTH_CONNECT grant, no Bluetooth adapter, or a SecurityException
+     * anyway.
      *
-     * "Unknown" must not be collapsed into STATE_DISCONNECTED: `startBluetoothSco`
-     * needs MODIFY_AUDIO_SETTINGS rather than BLUETOOTH_CONNECT, so Bluetooth audio
-     * works without this permission, and treating unknown as "no headset" would pull
-     * audio off a headset SCO is happily routing to. A device with no Bluetooth
-     * adapter at all is genuinely disconnected, so that case does return a state.
+     * Reporting "unknown" separately and then declining to touch the route was tried
+     * and is wrong: `bluetoothPreferred` defaults to true and this plugin only
+     * declares BLUETOOTH_CONNECT rather than requesting it, so on API 31+ the state is
+     * usually unreadable — which turned every `setSpeakerphoneOn` into a silent no-op
+     * that still reported success. An explicit request from the app has to win. There
+     * is no permission-free way to detect a connected headset, so the cost of being
+     * wrong here is a suboptimal route in the narrow case where the app never asked
+     * for the permission but a headset is connected; the alternative is a speaker
+     * button that does nothing.
      */
-    private fun bluetoothHeadsetConnectionState(): Int? {
+    private fun bluetoothHeadsetConnectionState(): Int {
         if (!hasBluetoothConnectPermission()) {
-            debug("bluetoothHeadsetConnectionState => BLUETOOTH_CONNECT not granted, state unknown")
-            return null
+            debug("bluetoothHeadsetConnectionState => BLUETOOTH_CONNECT not granted, assuming disconnected")
+            return BluetoothProfile.STATE_DISCONNECTED
         }
         return try {
             BluetoothAdapter.getDefaultAdapter()?.getProfileConnectionState(BluetoothProfile.HEADSET)
                     ?: BluetoothProfile.STATE_DISCONNECTED
         } catch (e: SecurityException) {
             debug("bluetoothHeadsetConnectionState => SecurityException: ${e.message}")
-            null
+            BluetoothProfile.STATE_DISCONNECTED
         }
     }
 
@@ -488,12 +516,8 @@ class PluginHandler : MethodCallHandler, ActivityAware, BaseListener {
         // the bluetoothProfileConnectionState will still be BluetoothProfile.STATE_CONNECTED
         // resulting in an edge case where audio will be routed via the receiver rather than the
         // bottom speaker.
-        //
-        // A null state means the headset state is unknown (no BLUETOOTH_CONNECT), so
-        // leave whatever route is active alone rather than forcing the speaker.
         if (!audioSettings.bluetoothPreferred ||
-                (bluetoothProfileConnectionState != null &&
-                        bluetoothProfileConnectionState != BluetoothProfile.STATE_CONNECTED)) {
+                bluetoothProfileConnectionState != BluetoothProfile.STATE_CONNECTED) {
             applySpeakerPhoneSettings()
         }
     }

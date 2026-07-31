@@ -11,10 +11,6 @@ import android.content.IntentFilter
 import android.media.AudioManager
 
 class AudioNotificationListener() : BaseListener() {
-    companion object {
-        private const val UNKNOWN_BLUETOOTH_DEVICE_NAME = "Bluetooth Device"
-    }
-
     private val TAG = "AudioNotificationListener"
     private val intentFilter: IntentFilter = IntentFilter()
     private val activeAudioPlayers: MutableSet<String> = mutableSetOf()
@@ -55,6 +51,14 @@ class AudioNotificationListener() : BaseListener() {
 
     private val receiver: BroadcastReceiver = getBroadcastReceiver()
 
+    /**
+     * registerReceiver is additive — registering the same instance twice makes every
+     * broadcast arrive twice, while unregisterReceiver drops all registrations at once,
+     * so the two can never rebalance. setAudioSettings calls listenForRouteChanges
+     * unconditionally, so the pair has to be tracked.
+     */
+    private var receiverRegistered = false
+
     init {
         // https://developer.android.com/reference/android/media/AudioManager#ACTION_HEADSET_PLUG
         intentFilter.addAction(AudioManager.ACTION_HEADSET_PLUG)
@@ -74,7 +78,10 @@ class AudioNotificationListener() : BaseListener() {
 
     fun listenForRouteChanges(context: Context) {
         debug("listenForRouteChanges")
-        context.registerReceiver(receiver, intentFilter)
+        if (!receiverRegistered) {
+            context.registerReceiver(receiver, intentFilter)
+            receiverRegistered = true
+        }
 
         // Binding the headset profile proxy needs BLUETOOTH_CONNECT from API 31 on.
         // Skipping the bind when the permission is missing also means
@@ -96,11 +103,15 @@ class AudioNotificationListener() : BaseListener() {
     fun stopListeningForRouteChanges(context: Context) {
         debug("stopListeningForRouteChanges")
         // Throws if the receiver was never registered — reachable by calling
-        // disableAudioSettings twice, or before any setAudioSettings.
-        try {
-            context.unregisterReceiver(receiver)
-        } catch (e: IllegalArgumentException) {
-            debug("stopListeningForRouteChanges => receiver was not registered: ${e.message}")
+        // disableAudioSettings twice, or before any setAudioSettings. The flag covers
+        // the common case; the catch stays for a context mismatch desyncing it.
+        if (receiverRegistered) {
+            try {
+                context.unregisterReceiver(receiver)
+            } catch (e: IllegalArgumentException) {
+                debug("stopListeningForRouteChanges => receiver was not registered: ${e.message}")
+            }
+            receiverRegistered = false
         }
         if (!TwilioProgrammableVideoPlugin.pluginHandler.hasBluetoothConnectPermission()) {
             debug("stopListeningForRouteChanges => BLUETOOTH_CONNECT not granted, nothing to unbind")
@@ -157,24 +168,26 @@ class AudioNotificationListener() : BaseListener() {
     }
 
     /**
-     * BluetoothDevice.getName needs BLUETOOTH_CONNECT from API 31 on, and this is
-     * read inside a BroadcastReceiver where an uncaught SecurityException would tear
-     * the app down.
+     * BluetoothDevice.getName needs BLUETOOTH_CONNECT from API 31 on, and this is read
+     * inside a BroadcastReceiver where an uncaught SecurityException would tear the app
+     * down. The only change from the original is the catch — the null return is
+     * deliberate.
      *
-     * Falls back to a placeholder rather than null: the Dart layer turns a null
-     * deviceName into a SkippableAudioEvent
-     * (method_channel_programmable_video.dart), so returning null would make
-     * Bluetooth connect/disconnect events disappear from the stream entirely
-     * whenever the permission is missing. The route change is still worth reporting
-     * even when the device's name cannot be read.
+     * A synthetic placeholder name was tried and is worse than dropping the event. The
+     * name is the only identity these events carry, so every unidentifiable device
+     * would share it: an app keeping a device list keyed by name removes the wrong
+     * entry when a second unnamed headset disconnects. The Dart layer turns a null
+     * deviceName into a SkippableAudioEvent (method_channel_programmable_video.dart),
+     * and this plugin's own re-routing already happened in the caller before the event
+     * is sent, so dropping it only costs the app a UI notification rather than
+     * corrupting its state.
      */
-    private fun bluetoothDeviceName(intent: Intent?): String {
+    private fun bluetoothDeviceName(intent: Intent?): String? {
         return try {
             intent?.getParcelableExtra<BluetoothDevice>(BluetoothDevice.EXTRA_DEVICE)?.name
-                ?: UNKNOWN_BLUETOOTH_DEVICE_NAME
         } catch (e: SecurityException) {
             debug("bluetoothDeviceName => BLUETOOTH_CONNECT not granted: ${e.message}")
-            UNKNOWN_BLUETOOTH_DEVICE_NAME
+            null
         }
     }
 

@@ -12,15 +12,35 @@
   unaffected.
 - **Android**: fixed a crash and several `PlatformException`s on Android 12+ (API 31) when
   `BLUETOOTH_CONNECT` has not been granted. `setAudioSettings` could take the whole app down with an
-  uncaught `SecurityException` raised from the Bluetooth headset `ServiceListener` callback, and
-  `setSpeakerphoneOn` failed outright. The plugin now declares `BLUETOOTH_CONNECT` in its own
-  manifest (so consuming apps no longer have to) and every Bluetooth call degrades to "no headset
-  connected" when the runtime grant is missing — speaker and receiver routing keep working. Reading
-  the Bluetooth adapter also no longer throws on devices without Bluetooth.
+  uncaught `SecurityException` raised from the Bluetooth headset `ServiceListener` callback (and a
+  second one from the route-change `BroadcastReceiver`), and `setSpeakerphoneOn` failed outright.
+  All six Bluetooth call sites now report "no headset connected" when the state cannot be read, so
+  an explicit speakerphone or audio-settings request is still honoured; only Bluetooth *routing*
+  needs the grant. Reading the Bluetooth adapter also no longer throws on a device without
+  Bluetooth, and `startBluetoothSco`/`stopBluetoothSco` no longer crash the process when an OEM
+  audio stack rejects them.
+- **Android**: the plugin now declares `BLUETOOTH` and `BLUETOOTH_CONNECT` in its own manifest, so a
+  consuming app does not have to. Both are declared without `android:maxSdkVersion` on purpose —
+  setting it would make the manifest merger fail the build of any app that declares the same
+  permission with a different value. An app that wants Bluetooth routing still has to *request*
+  `BLUETOOTH_CONNECT` at runtime; the plugin never prompts. An app that wants neither permission in
+  its own manifest can strip them with `tools:node="remove"`.
 - **Android**: `getStats()` called before connecting to a `Room` returned a Kotlin
   `UninitializedPropertyAccessException` wrapped in a `PlatformException`. It now resolves to `null`,
   which is what the Dart layer already expected. The same unguarded access is fixed across
-  `disconnect()` and the other room-dependent method channel calls.
+  `disconnect()` and the other room-dependent method channel calls. **iOS still hangs in this case**
+  — its handler safe-calls the whole chain and never fulfils the result — which is tracked
+  separately.
+- **Android**: publishing a `LocalVideoTrack` without being connected to a `Room` reported success
+  while publishing nothing, and dropped the track from the plugin's registry so it could never be
+  released — the camera stayed held. It now answers `NOT_FOUND`, matching `unpublish`.
+- **Android**: repeated `setAudioSettings` calls registered the route-change `BroadcastReceiver`
+  again each time, so a single headset event was delivered once per call and re-ran the audio
+  routing that many times. Registration is now tracked, and `disableAudioSettings` no longer throws
+  when called twice or before any `setAudioSettings`.
+- Note for contributors: the published SDK floor is Dart 3.0, but `flutter_lints ^6` requires Dart
+  3.8, so building *this repository* needs 3.8 or newer. Consumers are unaffected — pub does not
+  resolve a package's dev dependencies.
 - Added `example/integration_test/plugin_smoke_test.dart`, an on-device smoke test for the method
   channel that needs no Twilio account, access token or Firebase project. It covers the two crashes
   above; the existing unit suites mock the platform interface and cannot. CI does not run it — it

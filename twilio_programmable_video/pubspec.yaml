@@ -28,6 +28,12 @@ dev_dependencies:
     sdk: flutter
   mockito: ^5.0.6
   build_runner: ^2.0.1
+  # Requires Dart >=3.8, above this package's own `sdk` floor. dev_dependencies are
+  # not part of the constraint a consumer resolves against, so consumers on Dart 3.0
+  # are unaffected — but working *on* this repo needs 3.8 or newer. Only
+  # flutter_lints 2.x reaches down to 3.0, and that predates the rules this codebase
+  # now relies on. Raising the published floor to ^3.8.0 instead would make the two
+  # match at the cost of every consumer.
   flutter_lints: ^6.0.0
 
 flutter:
