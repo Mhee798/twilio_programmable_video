@@ -93,7 +93,7 @@ class PluginHandler : MethodCallHandler, ActivityAware, BaseListener {
 
     private val remoteParticipants: List<RemoteParticipant>?
         get() {
-            return TwilioProgrammableVideoPlugin.roomListener.room?.remoteParticipants?.toList()
+            return TwilioProgrammableVideoPlugin.roomListenerOrNull?.room?.remoteParticipants?.toList()
         }
 
     fun getRemoteParticipant(sid: String?): RemoteParticipant? {
@@ -101,7 +101,7 @@ class PluginHandler : MethodCallHandler, ActivityAware, BaseListener {
     }
 
     fun getLocalParticipant(): LocalParticipant? {
-        return TwilioProgrammableVideoPlugin.roomListener.room?.localParticipant
+        return TwilioProgrammableVideoPlugin.roomListenerOrNull?.room?.localParticipant
     }
 
     override fun onMethodCall(@NonNull call: MethodCall, @NonNull result: MethodChannel.Result) {
@@ -270,7 +270,7 @@ class PluginHandler : MethodCallHandler, ActivityAware, BaseListener {
 
         debug("localAudioTrackEnable => called for $localAudioTrackName, enable=$localAudioTrackEnable")
 
-        val localAudioTrack = TwilioProgrammableVideoPlugin.roomListener.room?.localParticipant?.localAudioTracks?.firstOrNull { it.trackName == localAudioTrackName }
+        val localAudioTrack = TwilioProgrammableVideoPlugin.roomListenerOrNull?.room?.localParticipant?.localAudioTracks?.firstOrNull { it.trackName == localAudioTrackName }
         if (localAudioTrack != null) {
             localAudioTrack.localAudioTrack.enable(localAudioTrackEnable)
             return result.success(null)
@@ -286,7 +286,7 @@ class PluginHandler : MethodCallHandler, ActivityAware, BaseListener {
 
         debug("localDataTrackSendString => called for $localDataTrackName")
 
-        val localDataTrack = TwilioProgrammableVideoPlugin.roomListener.room?.localParticipant?.localDataTracks?.firstOrNull { it.trackName == localDataTrackName }
+        val localDataTrack = TwilioProgrammableVideoPlugin.roomListenerOrNull?.room?.localParticipant?.localDataTracks?.firstOrNull { it.trackName == localDataTrackName }
                 ?: return result.error("NOT_FOUND", "No LocalDataTrack found with the name '$localDataTrackName'", null)
 
         localDataTrack.localDataTrack.send(localDataTrackMessage)
@@ -301,7 +301,7 @@ class PluginHandler : MethodCallHandler, ActivityAware, BaseListener {
 
         debug("localDataTrackSendByteBuffer => called for $localDataTrackName")
 
-        val localDataTrack = TwilioProgrammableVideoPlugin.roomListener.room?.localParticipant?.localDataTracks?.firstOrNull { it.trackName == localDataTrackName }
+        val localDataTrack = TwilioProgrammableVideoPlugin.roomListenerOrNull?.room?.localParticipant?.localDataTracks?.firstOrNull { it.trackName == localDataTrackName }
                 ?: return result.error("NOT_FOUND", "No LocalDataTrack found with the name '$localDataTrackName'", null)
 
         localDataTrack.localDataTrack.send(ByteBuffer.wrap(localDataTrackMessage))
@@ -332,7 +332,7 @@ class PluginHandler : MethodCallHandler, ActivityAware, BaseListener {
     }
 
     private fun getRemoteAudioTrack(sid: String): RemoteAudioTrackPublication? {
-        val remoteParticipants = TwilioProgrammableVideoPlugin.roomListener.room?.remoteParticipants
+        val remoteParticipants = TwilioProgrammableVideoPlugin.roomListenerOrNull?.room?.remoteParticipants
                 ?: return null
 
         var remoteAudioTrack: RemoteAudioTrackPublication?
@@ -430,8 +430,26 @@ class PluginHandler : MethodCallHandler, ActivityAware, BaseListener {
         return result.success(audioSettings.speakerEnabled)
     }
 
+    /**
+     * Reading the Bluetooth headset profile state needs BLUETOOTH_CONNECT from API
+     * 31 on. This plugin declares the permission, but it is a runtime permission
+     * the host app may not have been granted yet and `getProfileConnectionState`
+     * throws SecurityException in that case. `getDefaultAdapter()` is also null on
+     * devices without Bluetooth. Either way report the headset as disconnected so
+     * audio still routes to the speaker or receiver rather than the call failing.
+     */
+    private fun bluetoothHeadsetConnectionState(): Int {
+        return try {
+            BluetoothAdapter.getDefaultAdapter()?.getProfileConnectionState(BluetoothProfile.HEADSET)
+                    ?: BluetoothProfile.STATE_DISCONNECTED
+        } catch (e: SecurityException) {
+            debug("bluetoothHeadsetConnectionState => BLUETOOTH_CONNECT not granted: ${e.message}")
+            BluetoothProfile.STATE_DISCONNECTED
+        }
+    }
+
     private fun setSpeakerPhoneOnInternal() {
-        val bluetoothProfileConnectionState = BluetoothAdapter.getDefaultAdapter().getProfileConnectionState(BluetoothProfile.HEADSET)
+        val bluetoothProfileConnectionState = bluetoothHeadsetConnectionState()
         debug("setSpeakerPhoneOnInternal => on: ${audioSettings.speakerEnabled}\n bluetoothEnable: ${audioSettings.bluetoothPreferred}\n bluetoothScoOn: ${audioManager.isBluetoothScoOn}\n bluetoothProfileConnectionState: $bluetoothProfileConnectionState")
 
         // Even if already enabled, setting `audioManager.isSpeakerphoneOn` to true
@@ -473,18 +491,25 @@ class PluginHandler : MethodCallHandler, ActivityAware, BaseListener {
     }
 
     private fun getStats(result: MethodChannel.Result) {
-        TwilioProgrammableVideoPlugin.roomListener.room?.getStats {
+        // Outside a Room there is nothing to report. The result has to be
+        // fulfilled explicitly here — leaving it to a safe-call on the Room would
+        // skip the callback and leave the Dart future pending forever. Dart maps
+        // this null onto a null StatsReport list.
+        val room = TwilioProgrammableVideoPlugin.roomListenerOrNull?.room
+                ?: return result.success(null)
+
+        room.getStats {
             result.success(StatsMapper.statsReportsToMap(it))
         }
     }
 
     private fun disconnect(call: MethodCall, result: MethodChannel.Result) {
         debug("disconnect => called")
-        TwilioProgrammableVideoPlugin.roomListener.room?.localParticipant?.localVideoTracks?.forEach { it.localVideoTrack.release() }
-        TwilioProgrammableVideoPlugin.roomListener.room?.localParticipant?.localAudioTracks?.forEach { it.localAudioTrack.release() }
-        TwilioProgrammableVideoPlugin.roomListener.room?.localParticipant?.localDataTracks?.forEach { it.localDataTrack.release() }
-        TwilioProgrammableVideoPlugin.roomListener.room?.disconnect()
-        TwilioProgrammableVideoPlugin.roomListener.room = null
+        TwilioProgrammableVideoPlugin.roomListenerOrNull?.room?.localParticipant?.localVideoTracks?.forEach { it.localVideoTrack.release() }
+        TwilioProgrammableVideoPlugin.roomListenerOrNull?.room?.localParticipant?.localAudioTracks?.forEach { it.localAudioTrack.release() }
+        TwilioProgrammableVideoPlugin.roomListenerOrNull?.room?.localParticipant?.localDataTracks?.forEach { it.localDataTrack.release() }
+        TwilioProgrammableVideoPlugin.roomListenerOrNull?.room?.disconnect()
+        TwilioProgrammableVideoPlugin.roomListenerOrNull?.room = null
         debug("disconnect => audioPlayers active: ${TwilioProgrammableVideoPlugin.audioNotificationListener.anyAudioPlayersActive()}")
         if (!TwilioProgrammableVideoPlugin.audioNotificationListener.anyAudioPlayersActive()) {
             setBluetoothSco(false)

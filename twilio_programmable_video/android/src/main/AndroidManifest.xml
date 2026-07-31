@@ -1,2 +1,14 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- The audio-routing code reads the Bluetooth headset profile state to choose
+         between speaker, receiver and Bluetooth — see
+         PluginHandler.setSpeakerPhoneOnInternal and
+         AudioNotificationListener.listenForRouteChanges. BLUETOOTH_CONNECT is
+         required for that from API 31; BLUETOOTH covers older releases.
+
+         Declaring them here means a consuming app does not have to. Both call sites
+         degrade to "no headset connected" when the runtime grant is missing, so an
+         app only needs to *request* BLUETOOTH_CONNECT if it wants Bluetooth routing
+         to work — speaker and receiver routing function without it. -->
+    <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30" />
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
 </manifest>

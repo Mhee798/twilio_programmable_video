@@ -95,6 +95,16 @@ class TwilioProgrammableVideoPlugin : FlutterPlugin {
         internal fun isConnected(): Boolean {
             return ::roomListener.isInitialized && roomListener.room != null
         }
+
+        /**
+         * `roomListener` is only assigned by `connect`, so any method channel call
+         * that can arrive before that must read it through here. Touching the
+         * `lateinit` property directly throws UninitializedPropertyAccessException,
+         * which reaches Dart as an opaque PlatformException.
+         */
+        @JvmStatic
+        internal val roomListenerOrNull: RoomListener?
+            get() = if (::roomListener.isInitialized) roomListener else null
     }
 
     override fun onAttachedToEngine(@NonNull binding: FlutterPlugin.FlutterPluginBinding) {

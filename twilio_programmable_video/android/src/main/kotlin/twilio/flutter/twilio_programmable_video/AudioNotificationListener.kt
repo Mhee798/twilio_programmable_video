@@ -26,12 +26,23 @@ class AudioNotificationListener() : BaseListener() {
 
         override fun onServiceConnected(profile: Int, proxy: BluetoothProfile?) {
             debug("onServiceConnected => profile: $profile, proxy: $proxy")
-            if (profile == BluetoothProfile.HEADSET) {
-                bluetoothProfile = proxy
-                if (bluetoothProfile!!.connectedDevices.size > 0 &&
-                    TwilioProgrammableVideoPlugin.pluginHandler.audioSettings.bluetoothPreferred) {
-                    TwilioProgrammableVideoPlugin.pluginHandler.applyAudioSettings()
-                }
+            if (profile != BluetoothProfile.HEADSET) return
+            bluetoothProfile = proxy
+
+            // BluetoothProfile.getConnectedDevices needs BLUETOOTH_CONNECT from API
+            // 31 on. The system invokes this callback on the main looper long after
+            // getProfileProxy() returned, so a SecurityException raised here is not
+            // caught by the caller and used to take the whole app down. Treat a
+            // missing grant as "no headset connected".
+            val headsetConnected = try {
+                (proxy?.connectedDevices?.size ?: 0) > 0
+            } catch (e: SecurityException) {
+                debug("onServiceConnected => BLUETOOTH_CONNECT not granted: ${e.message}")
+                false
+            }
+
+            if (headsetConnected && TwilioProgrammableVideoPlugin.pluginHandler.audioSettings.bluetoothPreferred) {
+                TwilioProgrammableVideoPlugin.pluginHandler.applyAudioSettings()
             }
         }
     }
@@ -60,13 +71,24 @@ class AudioNotificationListener() : BaseListener() {
     fun listenForRouteChanges(context: Context) {
         debug("listenForRouteChanges")
         context.registerReceiver(receiver, intentFilter)
-        BluetoothAdapter.getDefaultAdapter()?.getProfileProxy(context, getProfileProxy(), BluetoothProfile.HEADSET)
+        // Binding the headset profile proxy needs BLUETOOTH_CONNECT from API 31 on.
+        // Without the grant only Bluetooth routing is unavailable, so keep the
+        // headset-plug receiver above working instead of failing the whole call.
+        try {
+            BluetoothAdapter.getDefaultAdapter()?.getProfileProxy(context, getProfileProxy(), BluetoothProfile.HEADSET)
+        } catch (e: SecurityException) {
+            debug("listenForRouteChanges => BLUETOOTH_CONNECT not granted: ${e.message}")
+        }
     }
 
     fun stopListeningForRouteChanges(context: Context) {
         debug("stopListeningForRouteChanges")
         context.unregisterReceiver(receiver)
-        BluetoothAdapter.getDefaultAdapter()?.closeProfileProxy(BluetoothProfile.HEADSET, bluetoothProfile)
+        try {
+            BluetoothAdapter.getDefaultAdapter()?.closeProfileProxy(BluetoothProfile.HEADSET, bluetoothProfile)
+        } catch (e: SecurityException) {
+            debug("stopListeningForRouteChanges => BLUETOOTH_CONNECT not granted: ${e.message}")
+        }
     }
 
     private fun getBroadcastReceiver(): BroadcastReceiver {
@@ -92,7 +114,7 @@ class AudioNotificationListener() : BaseListener() {
 
                 val event = if (connected) "newDeviceAvailable" else "oldDeviceUnavailable"
 
-                val deviceName = if (bluetoothEvent) intent?.getParcelableExtra<BluetoothDevice>(BluetoothDevice.EXTRA_DEVICE)?.name
+                val deviceName = if (bluetoothEvent) bluetoothDeviceName(intent)
                     else intent?.getStringExtra("portName") ?: return
 
                 debug("onReceive => connected: $connected\n\tevent: $event\n\tbluetoothEvent: $bluetoothEvent\n\twiredEvent: $wiredEvent\n\tdeviceName: $deviceName")
@@ -109,6 +131,20 @@ class AudioNotificationListener() : BaseListener() {
                         "deviceName" to deviceName
                 ))
             }
+        }
+    }
+
+    /**
+     * BluetoothDevice.getName needs BLUETOOTH_CONNECT from API 31 on, and this is
+     * read inside a BroadcastReceiver where an uncaught SecurityException would
+     * tear the app down. Report an unknown name instead.
+     */
+    private fun bluetoothDeviceName(intent: Intent?): String? {
+        return try {
+            intent?.getParcelableExtra<BluetoothDevice>(BluetoothDevice.EXTRA_DEVICE)?.name
+        } catch (e: SecurityException) {
+            debug("bluetoothDeviceName => BLUETOOTH_CONNECT not granted: ${e.message}")
+            null
         }
     }
 
