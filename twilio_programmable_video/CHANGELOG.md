@@ -54,6 +54,15 @@
   Gradle Plugin previously ran at 1.9.23 while the standard library resolved to 2.1.x.
 - **Android**: removed the `ndkVersion` pin. The plugin has no native sources of its own, so the pin
   only asked every consuming app to install and declare that exact NDK.
+- **iOS**: `getStats()` outside a connected `Room` never completed — the native handler reached the
+  SDK through an optional chain, so with no `Room` it returned without ever fulfilling the
+  `FlutterResult`, and the Dart future stayed pending forever. A *disconnected* `Room` hangs the same
+  way: `TVIRoom getStatsWithBlock:` does not deliver reports in that state, and iOS (unlike Android)
+  keeps its `Room` reference after `disconnect()`, so a poll after a call ended hit it too. Every
+  non-connected state now resolves to `null`, which is what `programmable_video.dart` already
+  expected and what Android returns. This is the iOS counterpart of the Android `getStats` fix
+  above; `example/integration_test/plugin_smoke_test.dart` covers the never-connected case and now
+  passes on iOS.
 - **iOS BREAKING**: the minimum supported iOS version is now **13.0** (was 11.0). Apps targeting
   a lower version fail at `pod install` with `The platform of the target 'Runner' (iOS 11.0) is not
   compatible with twilio_programmable_video`. Set `platform :ios, '13.0'` in your `ios/Podfile` and

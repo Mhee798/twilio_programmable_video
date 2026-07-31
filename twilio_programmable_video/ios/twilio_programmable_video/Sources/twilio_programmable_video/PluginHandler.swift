@@ -608,7 +608,30 @@ public class PluginHandler: BaseListener {
     }
 
     private func getStats(result:@escaping FlutterResult) {
-        SwiftTwilioProgrammableVideoPlugin.roomListener?.room?.getStats {
+        // Anything other than a connected Room resolves to `null` — which is what
+        // `programmable_video.dart` already expects, and what Android returns —
+        // because the alternative is a `FlutterResult` that is never fulfilled and a
+        // Dart future that stays pending forever:
+        //
+        //  - With no Room at all, the trailing closure below is simply never reached.
+        //  - `TVIRoom getStatsWithBlock:` documents that a Room in the
+        //    `disconnected` state does not deliver reports, so the block is dropped.
+        //    That state is reachable here because `disconnect()` does not clear
+        //    this reference the way its Android counterpart does, and a
+        //    server-side disconnect never goes through `disconnect()` at all.
+        //  - `connecting`/`reconnecting` are not documented either way. Resolving to
+        //    `null` a little early is harmless (the Dart side is null-tolerant);
+        //    hanging is not, so they take the safe branch too.
+        //
+        // No debug() here on purpose: `handle()` deliberately skips its log line for
+        // `getStats` because apps poll it to drive animations, and logging on the
+        // not-connected path would put that noise straight back.
+        guard let room = SwiftTwilioProgrammableVideoPlugin.roomListener?.room,
+              room.state == .connected else {
+            return result(nil)
+        }
+
+        room.getStats {
             result(StatsMapper.statsReportsToDict($0))
         }
     }
