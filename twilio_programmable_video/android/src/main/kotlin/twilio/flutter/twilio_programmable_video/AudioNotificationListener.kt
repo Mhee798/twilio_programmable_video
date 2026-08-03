@@ -20,6 +20,10 @@ class AudioNotificationListener() : BaseListener() {
             debug("onServiceDisconnected => profile: $profile")
             if (profile == BluetoothProfile.HEADSET) {
                 bluetoothProfile = null
+                // The connection is gone and the proxy we were handed is no longer valid,
+                // so no closeProfileProxy is owed — and the next setAudioSettings should be
+                // free to bind a fresh one rather than seeing a stale "already bound".
+                profileProxyBound = false
                 TwilioProgrammableVideoPlugin.pluginHandler.applyAudioSettings()
             }
         }
@@ -59,6 +63,20 @@ class AudioNotificationListener() : BaseListener() {
      */
     private var receiverRegistered = false
 
+    /**
+     * getProfileProxy is additive in exactly the same way, and setAudioSettings reaches it
+     * on the same unconditional path. Every call opens another connection to the headset
+     * profile service while closeProfileProxy releases only the single proxy it is handed,
+     * so the bind/unbind pair cannot rebalance either.
+     *
+     * Leaking the connection is the smaller half of it: each new bind overwrites
+     * [bluetoothProfile] in onServiceConnected, which drops the reference to every earlier
+     * proxy and makes them impossible to close at all. Each bind also fires
+     * onServiceConnected, so applyAudioSettings — and the audio re-routing it performs —
+     * runs once per accumulated connection.
+     */
+    private var profileProxyBound = false
+
     init {
         // https://developer.android.com/reference/android/media/AudioManager#ACTION_HEADSET_PLUG
         intentFilter.addAction(AudioManager.ACTION_HEADSET_PLUG)
@@ -83,18 +101,32 @@ class AudioNotificationListener() : BaseListener() {
             receiverRegistered = true
         }
 
+        if (profileProxyBound) {
+            debug("listenForRouteChanges => headset profile proxy already bound")
+            return
+        }
+
         // Binding the headset profile proxy needs BLUETOOTH_CONNECT from API 31 on.
         // Skipping the bind when the permission is missing also means
         // onServiceConnected below never runs, so its getConnectedDevices call — the
         // one that used to take the whole app down — cannot be reached at all. The
         // try/catch there stays as a second line of defence. Only Bluetooth routing
         // is lost; the headset-plug receiver registered above keeps working.
+        //
+        // Nothing re-binds by itself when a grant arrives later, but setAudioSettings runs
+        // this whole path again on every call, so an app that requests BLUETOOTH_CONNECT
+        // mid-call picks the proxy up on its next call instead of staying unrouted for the
+        // rest of the session.
         if (!TwilioProgrammableVideoPlugin.pluginHandler.hasBluetoothConnectPermission()) {
             debug("listenForRouteChanges => BLUETOOTH_CONNECT not granted, skipping headset profile proxy")
             return
         }
         try {
-            BluetoothAdapter.getDefaultAdapter()?.getProfileProxy(context, getProfileProxy(), BluetoothProfile.HEADSET)
+            // false means the profile is unsupported or the bind could not be started —
+            // onServiceConnected will not run and no closeProfileProxy is owed. Only a
+            // true here makes this instance responsible for releasing a connection.
+            profileProxyBound = BluetoothAdapter.getDefaultAdapter()
+                    ?.getProfileProxy(context, getProfileProxy(), BluetoothProfile.HEADSET) ?: false
         } catch (e: SecurityException) {
             debug("listenForRouteChanges => SecurityException: ${e.message}")
         }
@@ -113,8 +145,12 @@ class AudioNotificationListener() : BaseListener() {
             }
             receiverRegistered = false
         }
-        if (!TwilioProgrammableVideoPlugin.pluginHandler.hasBluetoothConnectPermission()) {
-            debug("stopListeningForRouteChanges => BLUETOOTH_CONNECT not granted, nothing to unbind")
+        // Tracking the bind rather than re-checking the permission: a proxy is only ever
+        // bound while BLUETOOTH_CONNECT is held, so this also covers the ungranted case,
+        // and it does not leave a connection dangling if the grant were ever to disappear
+        // between the two calls.
+        if (!profileProxyBound) {
+            debug("stopListeningForRouteChanges => headset profile proxy not bound, nothing to unbind")
             return
         }
         try {
@@ -122,6 +158,8 @@ class AudioNotificationListener() : BaseListener() {
         } catch (e: SecurityException) {
             debug("stopListeningForRouteChanges => SecurityException: ${e.message}")
         }
+        profileProxyBound = false
+        bluetoothProfile = null
     }
 
     private fun getBroadcastReceiver(): BroadcastReceiver {

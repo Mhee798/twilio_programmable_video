@@ -36,8 +36,11 @@
   released — the camera stayed held. It now answers `NOT_FOUND`, matching `unpublish`.
 - **Android**: repeated `setAudioSettings` calls registered the route-change `BroadcastReceiver`
   again each time, so a single headset event was delivered once per call and re-ran the audio
-  routing that many times. Registration is now tracked, and `disableAudioSettings` no longer throws
-  when called twice or before any `setAudioSettings`.
+  routing that many times. The same calls also bound a new Bluetooth headset profile proxy every
+  time while `disableAudioSettings` released only the most recent one, leaking a service connection
+  per call and re-running the audio routing once per leaked connection. Both the registration and
+  the bind are now tracked, and `disableAudioSettings` no longer throws when called twice or before
+  any `setAudioSettings`.
 - Note for contributors: the published SDK floor is Dart 3.0, but `flutter_lints ^6` requires Dart
   3.8, so building *this repository* needs 3.8 or newer. Consumers are unaffected — pub does not
   resolve a package's dev dependencies.

@@ -43,10 +43,34 @@ Open the `AndroidManifest.xml` file in your `android/app/src/main` directory and
 ...
 <uses-permission android:name="android.permission.RECORD_AUDIO" />
 <uses-permission android:name="android.permission.CAMERA"/>
-<uses-permission android:name="android.permission.BLUETOOTH"/>
 <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS"/>
     ...
 ```
+
+###### Bluetooth
+
+`BLUETOOTH` and `BLUETOOTH_CONNECT` are declared by the plugin itself, so you do not need to add
+them — the manifest merger folds them into your app. Because of that they appear in your app's
+merged manifest whether or not you use Bluetooth routing. If you do not want them, strip them:
+
+```xml
+<manifest xmlns:tools="http://schemas.android.com/tools">
+    <uses-permission android:name="android.permission.BLUETOOTH" tools:node="remove"/>
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" tools:node="remove"/>
+```
+
+On Android 12 (API 31) and above, `BLUETOOTH_CONNECT` is a runtime permission and **the plugin never
+prompts for it** — `requestPermissionForCameraAndMicrophone()` covers only the camera and the
+microphone. Request it yourself if you want audio routed to a Bluetooth headset:
+
+```dart
+await Permission.bluetoothConnect.request();
+```
+
+Without the grant the plugin reports "no headset connected" instead of failing: speaker and receiver
+routing keep working, and an explicit `setAudioSettings`/`setSpeakerphoneOn` request is still
+honoured. Only Bluetooth routing is unavailable. If the user grants it during a call, the plugin
+picks it up on the next `setAudioSettings` call rather than immediately.
 
 ##### Proguard
 
