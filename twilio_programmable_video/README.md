@@ -61,9 +61,12 @@ merged manifest whether or not you use Bluetooth routing. If you do not want the
 
 On Android 12 (API 31) and above, `BLUETOOTH_CONNECT` is a runtime permission and **the plugin never
 prompts for it** — `requestPermissionForCameraAndMicrophone()` covers only the camera and the
-microphone. Request it yourself if you want audio routed to a Bluetooth headset:
+microphone. Request it yourself if you want audio routed to a Bluetooth headset. The plugin uses
+`permission_handler` internally but does not re-export it, so add it to your own `pubspec.yaml`:
 
 ```dart
+import 'package:permission_handler/permission_handler.dart';
+
 await Permission.bluetoothConnect.request();
 ```
 
