@@ -1,5 +1,5 @@
 @JS()
-library remote_video_track;
+library;
 
 import 'dart:html';
 

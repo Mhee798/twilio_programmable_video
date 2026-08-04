@@ -1,4 +1,4 @@
-part of twilio_programmable_video;
+part of 'parts.dart';
 
 abstract class VideoTrackPublication extends TrackPublication {
   /// The published video track.

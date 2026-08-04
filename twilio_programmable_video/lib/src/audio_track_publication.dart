@@ -1,4 +1,4 @@
-part of twilio_programmable_video;
+part of 'parts.dart';
 
 /// A published audio track represents an audio track that has been shared with a [Room].
 abstract class AudioTrackPublication extends TrackPublication {

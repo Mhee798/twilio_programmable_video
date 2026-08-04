@@ -1,5 +1,5 @@
 @JS()
-library js_map;
+library;
 
 import 'package:js/js.dart';
 

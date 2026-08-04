@@ -6,8 +6,7 @@ import 'package:twilio_programmable_video_platform_interface/twilio_programmable
 
 class MockInterface extends ProgrammableVideoPlatform {
   var setNativeDebugWasCalled = false;
-  // ignore: prefer_typing_uninitialized_variables
-  var nativeDebug;
+  bool? nativeDebug;
   var setSpeakerPhoneOnWasCalled = false;
   var getSpeakerPhoneOnWasCalled = false;
   var setAudioSettingsWasCalled = false;
@@ -17,6 +16,11 @@ class MockInterface extends ProgrammableVideoPlatform {
   var bluetoothOn = false;
   var deviceHasReceiverWasCalled = false;
   var getStatsWasCalled = false;
+
+  /// Payload [getStats] resolves with. Defaults to an empty map; tests that
+  /// need to exercise the stats-map -> [StatsReport] mapping replace it.
+  Map<dynamic, dynamic> statsToReturn = {};
+
   var connectToRoomWasCalled = false;
   var enableAudioTrackWasCalled = false;
   var enableVideoTrackWasCalled = false;
@@ -116,7 +120,7 @@ class MockInterface extends ProgrammableVideoPlatform {
   @override
   Future<Map<dynamic, dynamic>> getStats() {
     getStatsWasCalled = true;
-    return Future.delayed(const Duration(milliseconds: 1), () => {});
+    return Future.delayed(const Duration(milliseconds: 1), () => statsToReturn);
   }
 
   @override

@@ -6,10 +6,10 @@ class LocalVideoTrackModel extends TrackModel {
   final CameraCapturerModel cameraCapturer;
 
   const LocalVideoTrackModel({
-    required String name,
-    required bool enabled,
+    required super.name,
+    required super.enabled,
     required this.cameraCapturer,
-  }) : super(name: name, enabled: enabled);
+  });
 
   factory LocalVideoTrackModel.fromEventChannelMap(Map<String, dynamic> map) {
     assert(map['videoCapturer'] != null);

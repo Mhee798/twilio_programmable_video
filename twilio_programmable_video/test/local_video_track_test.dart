@@ -11,15 +11,29 @@ void main() {
     ProgrammableVideoPlatform.instance = mockInterface!;
   });
 
+  // The former `should not construct without enabled` test passed `null`
+  // through an untyped (`dynamic`) constructor parameter to trip an
+  // `assert(enabled != null)`. `enabled` is now declared `bool`, so passing
+  // null is a compile-time error and the runtime guard is unreachable — the
+  // case is enforced by the analyzer instead of by this test.
   group('LocalVideoTrack()', () {
-    test('should not construct without enabled', () async {
-      expect(
-        () => LocalVideoTrack(
-          null,
-          CameraCapturer(const CameraSource('BACK_CAMERA', false, false, false)),
-        ),
-        throwsAssertionError,
+    test('should store enabled, name and videoCapturer', () {
+      final capturer = CameraCapturer(const CameraSource('BACK_CAMERA', false, false, false));
+      final track = LocalVideoTrack(true, capturer, name: 'track-name');
+
+      expect(track.isEnabled, true);
+      expect(track.name, 'track-name');
+      expect(track.videoCapturer, same(capturer));
+    });
+
+    test('should default name to an empty string', () {
+      final track = LocalVideoTrack(
+        false,
+        CameraCapturer(const CameraSource('BACK_CAMERA', false, false, false)),
       );
+
+      expect(track.isEnabled, false);
+      expect(track.name, '');
     });
   });
 

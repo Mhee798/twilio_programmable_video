@@ -1,4 +1,4 @@
-part of twilio_programmable_video;
+part of 'parts.dart';
 
 /// A published track represents a track that has been shared with a [Room].
 abstract class TrackPublication {

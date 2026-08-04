@@ -1,5 +1,5 @@
 @JS()
-library participant_signaling;
+library;
 
 import 'package:js/js.dart';
 

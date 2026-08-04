@@ -20,18 +20,33 @@ class AudioNotificationListener() : BaseListener() {
             debug("onServiceDisconnected => profile: $profile")
             if (profile == BluetoothProfile.HEADSET) {
                 bluetoothProfile = null
+                // The connection is gone and the proxy we were handed is no longer valid,
+                // so no closeProfileProxy is owed — and the next setAudioSettings should be
+                // free to bind a fresh one rather than seeing a stale "already bound".
+                profileProxyBound = false
                 TwilioProgrammableVideoPlugin.pluginHandler.applyAudioSettings()
             }
         }
 
         override fun onServiceConnected(profile: Int, proxy: BluetoothProfile?) {
             debug("onServiceConnected => profile: $profile, proxy: $proxy")
-            if (profile == BluetoothProfile.HEADSET) {
-                bluetoothProfile = proxy
-                if (bluetoothProfile!!.connectedDevices.size > 0 &&
-                    TwilioProgrammableVideoPlugin.pluginHandler.audioSettings.bluetoothPreferred) {
-                    TwilioProgrammableVideoPlugin.pluginHandler.applyAudioSettings()
-                }
+            if (profile != BluetoothProfile.HEADSET) return
+            bluetoothProfile = proxy
+
+            // BluetoothProfile.getConnectedDevices needs BLUETOOTH_CONNECT from API
+            // 31 on. The system invokes this callback on the main looper long after
+            // getProfileProxy() returned, so a SecurityException raised here is not
+            // caught by the caller and used to take the whole app down. Treat a
+            // missing grant as "no headset connected".
+            val headsetConnected = try {
+                (proxy?.connectedDevices?.size ?: 0) > 0
+            } catch (e: SecurityException) {
+                debug("onServiceConnected => BLUETOOTH_CONNECT not granted: ${e.message}")
+                false
+            }
+
+            if (headsetConnected && TwilioProgrammableVideoPlugin.pluginHandler.audioSettings.bluetoothPreferred) {
+                TwilioProgrammableVideoPlugin.pluginHandler.applyAudioSettings()
             }
         }
     }
@@ -39,6 +54,28 @@ class AudioNotificationListener() : BaseListener() {
     var bluetoothProfile: BluetoothProfile? = null
 
     private val receiver: BroadcastReceiver = getBroadcastReceiver()
+
+    /**
+     * registerReceiver is additive — registering the same instance twice makes every
+     * broadcast arrive twice, while unregisterReceiver drops all registrations at once,
+     * so the two can never rebalance. setAudioSettings calls listenForRouteChanges
+     * unconditionally, so the pair has to be tracked.
+     */
+    private var receiverRegistered = false
+
+    /**
+     * getProfileProxy is additive in exactly the same way, and setAudioSettings reaches it
+     * on the same unconditional path. Every call opens another connection to the headset
+     * profile service while closeProfileProxy releases only the single proxy it is handed,
+     * so the bind/unbind pair cannot rebalance either.
+     *
+     * Leaking the connection is the smaller half of it: each new bind overwrites
+     * [bluetoothProfile] in onServiceConnected, which drops the reference to every earlier
+     * proxy and makes them impossible to close at all. Each bind also fires
+     * onServiceConnected, so applyAudioSettings — and the audio re-routing it performs —
+     * runs once per accumulated connection.
+     */
+    private var profileProxyBound = false
 
     init {
         // https://developer.android.com/reference/android/media/AudioManager#ACTION_HEADSET_PLUG
@@ -59,14 +96,70 @@ class AudioNotificationListener() : BaseListener() {
 
     fun listenForRouteChanges(context: Context) {
         debug("listenForRouteChanges")
-        context.registerReceiver(receiver, intentFilter)
-        BluetoothAdapter.getDefaultAdapter()?.getProfileProxy(context, getProfileProxy(), BluetoothProfile.HEADSET)
+        if (!receiverRegistered) {
+            context.registerReceiver(receiver, intentFilter)
+            receiverRegistered = true
+        }
+
+        if (profileProxyBound) {
+            debug("listenForRouteChanges => headset profile proxy already bound")
+            return
+        }
+
+        // Binding the headset profile proxy needs BLUETOOTH_CONNECT from API 31 on.
+        // Skipping the bind when the permission is missing also means
+        // onServiceConnected below never runs, so its getConnectedDevices call — the
+        // one that used to take the whole app down — cannot be reached at all. The
+        // try/catch there stays as a second line of defence. Only Bluetooth routing
+        // is lost; the headset-plug receiver registered above keeps working.
+        //
+        // Nothing re-binds by itself when a grant arrives later, but setAudioSettings runs
+        // this whole path again on every call, so an app that requests BLUETOOTH_CONNECT
+        // mid-call picks the proxy up on its next call instead of staying unrouted for the
+        // rest of the session.
+        if (!TwilioProgrammableVideoPlugin.pluginHandler.hasBluetoothConnectPermission()) {
+            debug("listenForRouteChanges => BLUETOOTH_CONNECT not granted, skipping headset profile proxy")
+            return
+        }
+        try {
+            // false means the profile is unsupported or the bind could not be started —
+            // onServiceConnected will not run and no closeProfileProxy is owed. Only a
+            // true here makes this instance responsible for releasing a connection.
+            profileProxyBound = BluetoothAdapter.getDefaultAdapter()
+                    ?.getProfileProxy(context, getProfileProxy(), BluetoothProfile.HEADSET) ?: false
+        } catch (e: SecurityException) {
+            debug("listenForRouteChanges => SecurityException: ${e.message}")
+        }
     }
 
     fun stopListeningForRouteChanges(context: Context) {
         debug("stopListeningForRouteChanges")
-        context.unregisterReceiver(receiver)
-        BluetoothAdapter.getDefaultAdapter()?.closeProfileProxy(BluetoothProfile.HEADSET, bluetoothProfile)
+        // Throws if the receiver was never registered — reachable by calling
+        // disableAudioSettings twice, or before any setAudioSettings. The flag covers
+        // the common case; the catch stays for a context mismatch desyncing it.
+        if (receiverRegistered) {
+            try {
+                context.unregisterReceiver(receiver)
+            } catch (e: IllegalArgumentException) {
+                debug("stopListeningForRouteChanges => receiver was not registered: ${e.message}")
+            }
+            receiverRegistered = false
+        }
+        // Tracking the bind rather than re-checking the permission: a proxy is only ever
+        // bound while BLUETOOTH_CONNECT is held, so this also covers the ungranted case,
+        // and it does not leave a connection dangling if the grant were ever to disappear
+        // between the two calls.
+        if (!profileProxyBound) {
+            debug("stopListeningForRouteChanges => headset profile proxy not bound, nothing to unbind")
+            return
+        }
+        try {
+            BluetoothAdapter.getDefaultAdapter()?.closeProfileProxy(BluetoothProfile.HEADSET, bluetoothProfile)
+        } catch (e: SecurityException) {
+            debug("stopListeningForRouteChanges => SecurityException: ${e.message}")
+        }
+        profileProxyBound = false
+        bluetoothProfile = null
     }
 
     private fun getBroadcastReceiver(): BroadcastReceiver {
@@ -92,7 +185,7 @@ class AudioNotificationListener() : BaseListener() {
 
                 val event = if (connected) "newDeviceAvailable" else "oldDeviceUnavailable"
 
-                val deviceName = if (bluetoothEvent) intent?.getParcelableExtra<BluetoothDevice>(BluetoothDevice.EXTRA_DEVICE)?.name
+                val deviceName = if (bluetoothEvent) bluetoothDeviceName(intent)
                     else intent?.getStringExtra("portName") ?: return
 
                 debug("onReceive => connected: $connected\n\tevent: $event\n\tbluetoothEvent: $bluetoothEvent\n\twiredEvent: $wiredEvent\n\tdeviceName: $deviceName")
@@ -109,6 +202,30 @@ class AudioNotificationListener() : BaseListener() {
                         "deviceName" to deviceName
                 ))
             }
+        }
+    }
+
+    /**
+     * BluetoothDevice.getName needs BLUETOOTH_CONNECT from API 31 on, and this is read
+     * inside a BroadcastReceiver where an uncaught SecurityException would tear the app
+     * down. The only change from the original is the catch — the null return is
+     * deliberate.
+     *
+     * A synthetic placeholder name was tried and is worse than dropping the event. The
+     * name is the only identity these events carry, so every unidentifiable device
+     * would share it: an app keeping a device list keyed by name removes the wrong
+     * entry when a second unnamed headset disconnects. The Dart layer turns a null
+     * deviceName into a SkippableAudioEvent (method_channel_programmable_video.dart),
+     * and this plugin's own re-routing already happened in the caller before the event
+     * is sent, so dropping it only costs the app a UI notification rather than
+     * corrupting its state.
+     */
+    private fun bluetoothDeviceName(intent: Intent?): String? {
+        return try {
+            intent?.getParcelableExtra<BluetoothDevice>(BluetoothDevice.EXTRA_DEVICE)?.name
+        } catch (e: SecurityException) {
+            debug("bluetoothDeviceName => BLUETOOTH_CONNECT not granted: ${e.message}")
+            null
         }
     }
 

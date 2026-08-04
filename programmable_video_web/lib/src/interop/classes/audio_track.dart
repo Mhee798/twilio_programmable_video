@@ -1,5 +1,5 @@
 @JS()
-library audio_track;
+library;
 
 import 'package:js/js.dart';
 import 'package:twilio_programmable_video_web/src/interop/classes/track.dart';

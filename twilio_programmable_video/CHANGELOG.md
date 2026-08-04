@@ -1,5 +1,59 @@
 ## Unreleased
 
+- **BREAKING**: the Dart SDK constraint is now `>=3.0.0 <4.0.0` (was `>=2.12.0 <3.0.0`) and the
+  Flutter constraint is `>=3.10.0` (was `>=1.17.0`, which predates Dart 3 and could never actually
+  satisfy the new SDK range). The package was already null-safe; this only drops support for Dart 2
+  toolchains.
+- **BREAKING**: `AudioTrack`, `VideoTrack`, `LocalVideoTrack`, `RemoteAudioTrack` and
+  `RemoteVideoTrack` now declare their `enabled` and `name` constructor parameters as `bool` and
+  `String` instead of leaving them untyped (`dynamic`). Passing a non-`bool`/non-`String` value —
+  including `null` — is now a compile-time error rather than a debug-only assertion or an opaque
+  `TypeError` thrown from inside `Track`. Code that already passed correctly typed values is
+  unaffected.
+- **Android**: fixed a crash and several `PlatformException`s on Android 12+ (API 31) when
+  `BLUETOOTH_CONNECT` has not been granted. `setAudioSettings` could take the whole app down with an
+  uncaught `SecurityException` raised from the Bluetooth headset `ServiceListener` callback (and a
+  second one from the route-change `BroadcastReceiver`), and `setSpeakerphoneOn` failed outright.
+  All six Bluetooth call sites now report "no headset connected" when the state cannot be read, so
+  an explicit speakerphone or audio-settings request is still honoured; only Bluetooth *routing*
+  needs the grant. Reading the Bluetooth adapter also no longer throws on a device without
+  Bluetooth, and `startBluetoothSco`/`stopBluetoothSco` no longer crash the process when an OEM
+  audio stack rejects them.
+- **Android**: the plugin now declares `BLUETOOTH` and `BLUETOOTH_CONNECT` in its own manifest, so a
+  consuming app does not have to. Both are declared without `android:maxSdkVersion` on purpose —
+  setting it would make the manifest merger fail the build of any app that declares the same
+  permission with a different value. An app that wants Bluetooth routing still has to *request*
+  `BLUETOOTH_CONNECT` at runtime; the plugin never prompts. An app that wants neither permission in
+  its own manifest can strip them with `tools:node="remove"`.
+- **Android**: `getStats()` called before connecting to a `Room` returned a Kotlin
+  `UninitializedPropertyAccessException` wrapped in a `PlatformException`. It now resolves to `null`,
+  which is what the Dart layer already expected. The same unguarded access is fixed across
+  `disconnect()` and the other room-dependent method channel calls. **iOS still hangs in this case**
+  — its handler safe-calls the whole chain and never fulfils the result — which is tracked
+  separately.
+- **Android**: publishing a `LocalVideoTrack` without being connected to a `Room` reported success
+  while publishing nothing, and dropped the track from the plugin's registry so it could never be
+  released — the camera stayed held. It now answers `NOT_FOUND`, matching `unpublish`.
+- **Android**: repeated `setAudioSettings` calls registered the route-change `BroadcastReceiver`
+  again each time, so a single headset event was delivered once per call and re-ran the audio
+  routing that many times. The same calls also bound a new Bluetooth headset profile proxy every
+  time while `disableAudioSettings` released only the most recent one, leaking a service connection
+  per call and re-running the audio routing once per leaked connection. Both the registration and
+  the bind are now tracked, and `disableAudioSettings` no longer throws when called twice or before
+  any `setAudioSettings`.
+- Note for contributors: the published SDK floor is Dart 3.0, but `flutter_lints ^6` requires Dart
+  3.8, so building *this repository* needs 3.8 or newer. Consumers are unaffected — pub does not
+  resolve a package's dev dependencies.
+- Added `example/integration_test/plugin_smoke_test.dart`, an on-device smoke test for the method
+  channel that needs no Twilio account, access token or Firebase project. It covers the two crashes
+  above; the existing unit suites mock the platform interface and cannot. CI does not run it — it
+  needs a device — see the file header for how to run it and why it must pass both with and without
+  `BLUETOOTH_CONNECT` granted.
+- **Android**: bumped `com.twilio:video-android` to 7.10.4 (was floating on `7.8.+`) and pinned it,
+  along with Kotlin 2.1.21 and Android Gradle Plugin 8.13.2, so builds are reproducible. The Kotlin
+  Gradle Plugin previously ran at 1.9.23 while the standard library resolved to 2.1.x.
+- **Android**: removed the `ndkVersion` pin. The plugin has no native sources of its own, so the pin
+  only asked every consuming app to install and declare that exact NDK.
 - **iOS BREAKING**: the minimum supported iOS version is now **13.0** (was 11.0). Apps targeting
   a lower version fail at `pod install` with `The platform of the target 'Runner' (iOS 11.0) is not
   compatible with twilio_programmable_video`. Set `platform :ios, '13.0'` in your `ios/Podfile` and

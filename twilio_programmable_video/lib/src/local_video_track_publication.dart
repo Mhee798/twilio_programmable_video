@@ -1,4 +1,4 @@
-part of twilio_programmable_video;
+part of 'parts.dart';
 
 /// A local video track publication represents a [LocalVideoTrack] that has been shared to a [Room].
 class LocalVideoTrackPublication implements VideoTrackPublication {

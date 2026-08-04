@@ -12,8 +12,8 @@ abstract class BaseCameraEvent {
 /// Use this event if camera was switched
 class CameraSwitched extends BaseCameraEvent {
   const CameraSwitched(
-    CameraCapturerModel model,
-  ) : super(model);
+    CameraCapturerModel super.model,
+  );
 
   @override
   String toString() => 'CameraSwitchedEvent: { source: ${model!.source} }';
@@ -22,8 +22,8 @@ class CameraSwitched extends BaseCameraEvent {
 /// Use this event if camera was switched
 class FirstFrameAvailable extends BaseCameraEvent {
   const FirstFrameAvailable(
-    CameraCapturerModel model,
-  ) : super(model);
+    CameraCapturerModel super.model,
+  );
 
   @override
   String toString() => 'FirstFrameAvailableEvent: { source: ${model!.source} }';
@@ -34,9 +34,9 @@ class CameraError extends BaseCameraEvent {
   final TwilioExceptionModel exception;
 
   const CameraError(
-    CameraCapturerModel model,
+    CameraCapturerModel super.model,
     this.exception,
-  ) : super(model);
+  );
 
   @override
   String toString() => 'CameraErrorEvent: { source: ${model!.source}, exception: $exception }';

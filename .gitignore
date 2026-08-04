@@ -153,3 +153,6 @@ pubspec.lock
 # End of https://www.gitignore.io/api/flutter,androidstudio
 \ No newline at end of file
 
+
+# Claude Code session artifacts (agent worktrees, scratch state)
+.claude/

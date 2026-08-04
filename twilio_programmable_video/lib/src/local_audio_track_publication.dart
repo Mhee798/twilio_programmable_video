@@ -1,4 +1,4 @@
-part of twilio_programmable_video;
+part of 'parts.dart';
 
 /// A local audio track publication represents a [LocalAudioTrack] that has been shared to a [Room].
 class LocalAudioTrackPublication implements AudioTrackPublication {

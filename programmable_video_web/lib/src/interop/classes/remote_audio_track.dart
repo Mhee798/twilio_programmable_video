@@ -1,5 +1,5 @@
 @JS()
-library remote_audio_track;
+library;
 
 import 'dart:html';
 

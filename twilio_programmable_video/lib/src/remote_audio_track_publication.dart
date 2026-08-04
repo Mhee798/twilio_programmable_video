@@ -1,4 +1,4 @@
-part of twilio_programmable_video;
+part of 'parts.dart';
 
 /// A remote audio track publication represents a [RemoteAudioTrack] that has been shared to a [Room].
 class RemoteAudioTrackPublication implements AudioTrackPublication {

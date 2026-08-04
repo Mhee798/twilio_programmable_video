@@ -1,5 +1,5 @@
 @JS()
-library local_data_track_publication;
+library;
 
 import 'package:js/js.dart';
 import 'package:twilio_programmable_video_web/src/interop/classes/local_data_track.dart';

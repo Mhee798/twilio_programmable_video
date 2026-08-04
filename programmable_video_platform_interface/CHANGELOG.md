@@ -1,3 +1,14 @@
+## Unreleased
+
+- **BREAKING**: the Dart SDK constraint is now `>=3.0.0 <4.0.0` (was `>=2.12.0 <3.0.0`). The package
+  was already null-safe; this only drops support for Dart 2 toolchains.
+- Fixed `flutter pub get` failing outright on Dart 3: the `build_runner` dev dependency was pinned to
+  `^1.10.0`, which predates null safety, so version solving could not succeed.
+- The public API is unchanged — verified with `dart_apitool diff` against 1.1.0.
+- Internal: constructors now use super parameters, and `analysis_options.yaml` includes
+  `flutter_lints` instead of the discontinued `pedantic`. The old include referenced a package that
+  was not a dependency of this package at all, so its lint rules had silently never been applied.
+
 ## 1.1.0
 
 - Added `VideoRenderMode mode` as an optional parameter to the `widget` method of the `LocalVideoTrack`, and the `RemoteVideoTrack` classes. For backwards compatibility, it defaults to `VideoRenderMode.BALANCED`.

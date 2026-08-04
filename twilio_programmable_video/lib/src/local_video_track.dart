@@ -1,4 +1,4 @@
-part of twilio_programmable_video;
+part of 'parts.dart';
 
 /// A local video track that gets video frames from a specified [VideoCapturer].
 class LocalVideoTrack extends VideoTrack {
@@ -13,7 +13,7 @@ class LocalVideoTrack extends VideoTrack {
   /// Retrieves the [VideoCapturer].
   VideoCapturer get videoCapturer => _videoCapturer;
 
-  LocalVideoTrack(enabled, this._videoCapturer, {String name = ''}) : super(enabled, name);
+  LocalVideoTrack(bool enabled, this._videoCapturer, {String name = ''}) : super(enabled, name);
 
   /// Construct from a [LocalVideoTrackModel].
   factory LocalVideoTrack._fromModel(LocalVideoTrackModel model) {

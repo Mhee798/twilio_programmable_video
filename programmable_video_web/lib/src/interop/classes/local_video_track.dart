@@ -1,5 +1,5 @@
 @JS()
-library local_video_track;
+library;
 
 import 'dart:html';
 import 'package:js/js.dart';

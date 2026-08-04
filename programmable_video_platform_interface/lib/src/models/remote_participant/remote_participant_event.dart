@@ -16,9 +16,9 @@ class RemoteAudioTrackDisabled extends BaseRemoteParticipantEvent {
   final RemoteAudioTrackPublicationModel remoteAudioTrackPublicationModel;
 
   const RemoteAudioTrackDisabled(
-    RemoteParticipantModel remoteParticipantModel,
+    RemoteParticipantModel super.remoteParticipantModel,
     this.remoteAudioTrackPublicationModel,
-  ) : super(remoteParticipantModel);
+  );
 
   @override
   String toString() => 'RemoteAudioTrackDisabled: { remoteParticipantModel: $remoteParticipantModel, remoteAudioTrackPublicationModel: $remoteAudioTrackPublicationModel }';
@@ -29,9 +29,9 @@ class RemoteAudioTrackEnabled extends BaseRemoteParticipantEvent {
   final RemoteAudioTrackPublicationModel remoteAudioTrackPublicationModel;
 
   const RemoteAudioTrackEnabled(
-    RemoteParticipantModel remoteParticipantModel,
+    RemoteParticipantModel super.remoteParticipantModel,
     this.remoteAudioTrackPublicationModel,
-  ) : super(remoteParticipantModel);
+  );
 
   @override
   String toString() => 'RemoteAudioTrackEnabled: { remoteParticipantModel: $remoteParticipantModel, remoteAudioTrackPublicationModel: $remoteAudioTrackPublicationModel }';
@@ -42,9 +42,9 @@ class RemoteAudioTrackPublished extends BaseRemoteParticipantEvent {
   final RemoteAudioTrackPublicationModel remoteAudioTrackPublicationModel;
 
   const RemoteAudioTrackPublished(
-    RemoteParticipantModel remoteParticipantModel,
+    RemoteParticipantModel super.remoteParticipantModel,
     this.remoteAudioTrackPublicationModel,
-  ) : super(remoteParticipantModel);
+  );
 
   @override
   String toString() => 'RemoteAudioTrackPublished: { remoteParticipantModel: $remoteParticipantModel, remoteAudioTrackPublicationModel: $remoteAudioTrackPublicationModel }';
@@ -89,9 +89,9 @@ class RemoteAudioTrackUnpublished extends BaseRemoteParticipantEvent {
   final RemoteAudioTrackPublicationModel remoteAudioTrackPublicationModel;
 
   const RemoteAudioTrackUnpublished(
-    RemoteParticipantModel remoteParticipantModel,
+    RemoteParticipantModel super.remoteParticipantModel,
     this.remoteAudioTrackPublicationModel,
-  ) : super(remoteParticipantModel);
+  );
 
   @override
   String toString() => 'RemoteAudioTrackUnpublished: { remoteParticipantModel: $remoteParticipantModel, remoteAudioTrackPublicationModel: $remoteAudioTrackPublicationModel }';
@@ -119,9 +119,9 @@ class RemoteDataTrackPublished extends BaseRemoteParticipantEvent {
   final RemoteDataTrackPublicationModel remoteDataTrackPublicationModel;
 
   const RemoteDataTrackPublished(
-    RemoteParticipantModel remoteParticipantModel,
+    RemoteParticipantModel super.remoteParticipantModel,
     this.remoteDataTrackPublicationModel,
-  ) : super(remoteParticipantModel);
+  );
 
   @override
   String toString() => 'RemoteDataTrackPublished: { remoteParticipantModel: $remoteParticipantModel, remoteDataTrackPublicationModel: $remoteDataTrackPublicationModel }';
@@ -166,9 +166,9 @@ class RemoteDataTrackUnpublished extends BaseRemoteParticipantEvent {
   final RemoteDataTrackPublicationModel remoteDataTrackPublicationModel;
 
   const RemoteDataTrackUnpublished(
-    RemoteParticipantModel remoteParticipantModel,
+    RemoteParticipantModel super.remoteParticipantModel,
     this.remoteDataTrackPublicationModel,
-  ) : super(remoteParticipantModel);
+  );
 
   @override
   String toString() => 'RemoteDataTrackUnpublished: { remoteParticipantModel: $remoteParticipantModel, remoteDataTrackPublicationModel: $remoteDataTrackPublicationModel }';
@@ -196,9 +196,9 @@ class RemoteVideoTrackDisabled extends BaseRemoteParticipantEvent {
   final RemoteVideoTrackPublicationModel remoteVideoTrackPublicationModel;
 
   const RemoteVideoTrackDisabled(
-    RemoteParticipantModel remoteParticipantModel,
+    RemoteParticipantModel super.remoteParticipantModel,
     this.remoteVideoTrackPublicationModel,
-  ) : super(remoteParticipantModel);
+  );
 
   @override
   String toString() => 'RemoteVideoTrackDisabled: { remoteParticipantModel: $remoteParticipantModel, remoteVideoTrackPublicationModel: $remoteVideoTrackPublicationModel }';
@@ -209,9 +209,9 @@ class RemoteVideoTrackEnabled extends BaseRemoteParticipantEvent {
   final RemoteVideoTrackPublicationModel remoteVideoTrackPublicationModel;
 
   const RemoteVideoTrackEnabled(
-    RemoteParticipantModel remoteParticipantModel,
+    RemoteParticipantModel super.remoteParticipantModel,
     this.remoteVideoTrackPublicationModel,
-  ) : super(remoteParticipantModel);
+  );
 
   @override
   String toString() => 'RemoteVideoTrackEnabled: { remoteParticipantModel: $remoteParticipantModel, remoteVideoTrackPublicationModel: $remoteVideoTrackPublicationModel }';
@@ -222,9 +222,9 @@ class RemoteVideoTrackPublished extends BaseRemoteParticipantEvent {
   final RemoteVideoTrackPublicationModel remoteVideoTrackPublicationModel;
 
   const RemoteVideoTrackPublished(
-    RemoteParticipantModel remoteParticipantModel,
+    RemoteParticipantModel super.remoteParticipantModel,
     this.remoteVideoTrackPublicationModel,
-  ) : super(remoteParticipantModel);
+  );
 
   @override
   String toString() => 'RemoteVideoTrackPublished: { remoteParticipantModel: $remoteParticipantModel, remoteVideoTrackPublicationModel: $remoteVideoTrackPublicationModel }';
@@ -269,9 +269,9 @@ class RemoteVideoTrackUnpublished extends BaseRemoteParticipantEvent {
   final RemoteVideoTrackPublicationModel remoteVideoTrackPublicationModel;
 
   const RemoteVideoTrackUnpublished(
-    RemoteParticipantModel remoteParticipantModel,
+    RemoteParticipantModel super.remoteParticipantModel,
     this.remoteVideoTrackPublicationModel,
-  ) : super(remoteParticipantModel);
+  );
 
   @override
   String toString() => 'RemoteVideoTrackUnpublished: { remoteParticipantModel: $remoteParticipantModel, remoteVideoTrackPublicationModel: $remoteVideoTrackPublicationModel }';
@@ -298,7 +298,7 @@ class RemoteVideoTrackUnsubscribed extends BaseRemoteParticipantEvent {
 class RemoteNetworkQualityLevelChanged extends BaseRemoteParticipantEvent {
   final NetworkQualityLevel networkQualityLevel;
 
-  const RemoteNetworkQualityLevelChanged(RemoteParticipantModel remoteParticipantModel, this.networkQualityLevel) : super(remoteParticipantModel);
+  const RemoteNetworkQualityLevelChanged(RemoteParticipantModel super.remoteParticipantModel, this.networkQualityLevel);
 
   @override
   String toString() => 'RemoteNetworkQualityLevelChanged: { remoteParticipantModel: $remoteParticipantModel, networkQualityLevel: $networkQualityLevel}';

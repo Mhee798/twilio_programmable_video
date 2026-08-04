@@ -1,4 +1,4 @@
-part of twilio_programmable_video;
+part of 'parts.dart';
 
 /// The [CameraCapturer] is used to provide video frames for a [LocalVideoTrack] from a given [CameraSource].
 class CameraCapturer implements VideoCapturer {

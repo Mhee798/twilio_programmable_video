@@ -1,4 +1,4 @@
-part of twilio_programmable_video;
+part of 'parts.dart';
 
 /// Represents a local data track.
 class LocalDataTrack extends DataTrack {

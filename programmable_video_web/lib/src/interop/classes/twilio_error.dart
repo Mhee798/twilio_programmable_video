@@ -1,5 +1,5 @@
 @JS()
-library twilio_error;
+library;
 
 import 'package:js/js.dart';
 import 'package:twilio_programmable_video_platform_interface/twilio_programmable_video_platform_interface.dart';

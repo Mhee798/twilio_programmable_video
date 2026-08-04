@@ -1,4 +1,4 @@
-part of twilio_programmable_video;
+part of 'parts.dart';
 
 /// This class holds the stats for a given room, currently supports local audio/video and remote audio/video stats.
 /// There are additional Ice candidate pair stats available, but this is only for peer to peer -> which the plugin does not support.
@@ -51,24 +51,16 @@ class RemoteVideoTrackStats extends RemoteTrackStats {
   final int frameRate;
 
   RemoteVideoTrackStats(
-    String trackSid,
-    int packetsLost,
-    String codec,
-    String ssrc,
-    double timestamp,
-    int bytesReceived,
-    int packetsReceived,
+    super.trackSid,
+    super.packetsLost,
+    super.codec,
+    super.ssrc,
+    super.timestamp,
+    super.bytesReceived,
+    super.packetsReceived,
     this.dimensions,
     this.frameRate,
-  ) : super(
-          trackSid,
-          packetsLost,
-          codec,
-          ssrc,
-          timestamp,
-          bytesReceived,
-          packetsReceived,
-        );
+  );
 }
 
 class RemoteAudioTrackStats extends RemoteTrackStats {
@@ -79,24 +71,16 @@ class RemoteAudioTrackStats extends RemoteTrackStats {
   final int jitter;
 
   RemoteAudioTrackStats(
-    String trackSid,
-    int packetsLost,
-    String codec,
-    String ssrc,
-    double timestamp,
-    int bytesReceived,
-    int packetsReceived,
+    super.trackSid,
+    super.packetsLost,
+    super.codec,
+    super.ssrc,
+    super.timestamp,
+    super.bytesReceived,
+    super.packetsReceived,
     this.audioLevel,
     this.jitter,
-  ) : super(
-          trackSid,
-          packetsLost,
-          codec,
-          ssrc,
-          timestamp,
-          bytesReceived,
-          packetsReceived,
-        );
+  );
 }
 
 class LocalAudioTrackStats extends LocalTrackStats {
@@ -107,26 +91,17 @@ class LocalAudioTrackStats extends LocalTrackStats {
   final int jitter;
 
   LocalAudioTrackStats(
-    String trackSid,
-    int packetsLost,
-    String codec,
-    String ssrc,
-    double timestamp,
-    int bytesSent,
-    int packetsSent,
-    int roundTripTime,
+    super.trackSid,
+    super.packetsLost,
+    super.codec,
+    super.ssrc,
+    super.timestamp,
+    super.bytesSent,
+    super.packetsSent,
+    super.roundTripTime,
     this.audioLevel,
     this.jitter,
-  ) : super(
-          trackSid,
-          packetsLost,
-          codec,
-          ssrc,
-          timestamp,
-          bytesSent,
-          packetsSent,
-          roundTripTime,
-        );
+  );
 }
 
 class LocalVideoTrackStats extends LocalTrackStats {
@@ -143,28 +118,19 @@ class LocalVideoTrackStats extends LocalTrackStats {
   final int frameRate;
 
   LocalVideoTrackStats(
-    String trackSid,
-    int packetsLost,
-    String codec,
-    String ssrc,
-    double timestamp,
-    int bytesSent,
-    int packetsSent,
-    int roundTripTime,
+    super.trackSid,
+    super.packetsLost,
+    super.codec,
+    super.ssrc,
+    super.timestamp,
+    super.bytesSent,
+    super.packetsSent,
+    super.roundTripTime,
     this.captureDimensions,
     this.dimensions,
     this.capturedFrameRate,
     this.frameRate,
-  ) : super(
-          trackSid,
-          packetsLost,
-          codec,
-          ssrc,
-          timestamp,
-          bytesSent,
-          packetsSent,
-          roundTripTime,
-        );
+  );
 }
 
 class VideoDimensions {
@@ -183,14 +149,14 @@ abstract class RemoteTrackStats extends BaseTrackStats {
   final int packetsReceived;
 
   RemoteTrackStats(
-    String trackSid,
-    int packetsLost,
-    String codec,
-    String ssrc,
-    double timestamp,
+    super.trackSid,
+    super.packetsLost,
+    super.codec,
+    super.ssrc,
+    super.timestamp,
     this.bytesReceived,
     this.packetsReceived,
-  ) : super(trackSid, packetsLost, codec, ssrc, timestamp);
+  );
 }
 
 abstract class LocalTrackStats extends BaseTrackStats {
@@ -205,15 +171,15 @@ abstract class LocalTrackStats extends BaseTrackStats {
   final int roundTripTime;
 
   LocalTrackStats(
-    String trackSid,
-    int packetsLost,
-    String codec,
-    String ssrc,
-    double timestamp,
+    super.trackSid,
+    super.packetsLost,
+    super.codec,
+    super.ssrc,
+    super.timestamp,
     this.bytesSent,
     this.packetsSent,
     this.roundTripTime,
-  ) : super(trackSid, packetsLost, codec, ssrc, timestamp);
+  );
 }
 
 abstract class BaseTrackStats {

@@ -1,9 +1,7 @@
-part of twilio_programmable_video;
+part of 'parts.dart';
 
 /// Abstract base class for audio tracks.
 abstract class AudioTrack extends Track {
-  AudioTrack(enabled, name)
-      : assert(enabled != null),
-        assert(name != null),
-        super(enabled, name);
+  // Types are inherited from Track(this._enabled, this._name): bool, String.
+  AudioTrack(super.enabled, super.name);
 }

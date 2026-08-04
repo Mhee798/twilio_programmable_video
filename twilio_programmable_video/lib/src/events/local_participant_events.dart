@@ -1,4 +1,4 @@
-part of twilio_programmable_video;
+part of '../parts.dart';
 
 //#region AUDIO TRACK EVENTS
 class LocalAudioTrackPublicationFailedEvent {

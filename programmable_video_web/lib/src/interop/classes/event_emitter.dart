@@ -1,5 +1,5 @@
 @JS()
-library event_emitter;
+library;
 
 import 'package:js/js.dart';
 

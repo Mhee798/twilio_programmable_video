@@ -1,2 +1,21 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- The audio-routing code reads the Bluetooth headset profile state to choose
+         between speaker, receiver and Bluetooth — see
+         PluginHandler.setSpeakerPhoneOnInternal and
+         AudioNotificationListener.listenForRouteChanges. BLUETOOTH_CONNECT is
+         required for that from API 31; BLUETOOTH covers older releases.
+
+         Declaring them here means a consuming app does not have to. Both call sites
+         report "no headset connected" when the grant is missing, so an app only needs
+         to *request* BLUETOOTH_CONNECT if it wants Bluetooth routing to work; speaker
+         and receiver routing function without it.
+
+         Deliberately declared with no attributes. Setting android:maxSdkVersion here
+         (30 would be the natural value for the legacy permission) makes the manifest
+         merger fail the build of any app that declares the same permission with a
+         different value — "Attribute uses-permission#...@maxSdkVersion value=(30) ...
+         is also present at AndroidManifest.xml value=(29)". With the attribute absent
+         the app's own declaration simply wins, whatever it says. -->
+    <uses-permission android:name="android.permission.BLUETOOTH" />
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
 </manifest>

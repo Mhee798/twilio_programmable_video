@@ -202,9 +202,12 @@ class _NetworkQualityIndicatorState extends State<NetworkQualityIndicator> {
     double? left;
     double? right;
     double? bottom;
-    if (widget.networkQualityIndicatorPosition != null) {
-      // ignore: missing_enum_constant_in_switch
-      switch (widget.networkQualityIndicatorPosition) {
+    final position = widget.networkQualityIndicatorPosition;
+    if (position != null) {
+      // `position` is promoted to non-nullable here, which makes the switch
+      // exhaustive over the enum without a default case — so adding a value to
+      // NetworkQualityIndicatorPosition becomes a compile-time error.
+      switch (position) {
         case NetworkQualityIndicatorPosition.topLeft:
           top = 0.0 + (widget.top ?? 0.0);
           left = 0.0 + (widget.left ?? 0.0);

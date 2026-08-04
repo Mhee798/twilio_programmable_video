@@ -133,7 +133,16 @@ unit_test:
     - flutter test --coverage --pub test
     - cd ../programmable_video_platform_interface || exit 1
     - flutter test --coverage --pub test
-    - cd ../ || exit 1
+    # The example carries widget tests for its own UI (no coverage: it is not a
+    # published package, so it is left out of the merged lcov report below).
+    #
+    # `test` is passed explicitly so this does not pick up
+    # example/integration_test/, which needs a real device or emulator and cannot
+    # run here — see the header of example/integration_test/plugin_smoke_test.dart
+    # for how to run it locally.
+    - cd ../twilio_programmable_video/example || exit 1
+    - flutter test --pub test
+    - cd ../../ || exit 1
     - sed -i 's/SF:/SF:twilio_programmable_video\//g' twilio_programmable_video/coverage/lcov.info
     - sed -i 's/SF:/SF:programmable_video_platform_interface\//g' programmable_video_platform_interface/coverage/lcov.info
     - lcov --add-tracefile ./twilio_programmable_video/coverage/lcov.info --add-tracefile ./programmable_video_platform_interface/coverage/lcov.info --output-file lcov_combined.info
@@ -146,6 +155,8 @@ unit_test:
       - "**/pubspec.yaml"
       - twilio_programmable_video/lib/**/*
       - twilio_programmable_video/test/**/*
+      - twilio_programmable_video/example/lib/**/*
+      - twilio_programmable_video/example/test/**/*
       - programmable_video_platform_interface/lib/**/*
       - programmable_video_platform_interface/test/**/*
       - .gitlab-ci.yml

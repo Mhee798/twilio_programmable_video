@@ -1,4 +1,4 @@
-part of twilio_programmable_video;
+part of 'parts.dart';
 
 /// A participant represents a remote user that can connect to a [Room].
 class RemoteParticipant implements Participant {
