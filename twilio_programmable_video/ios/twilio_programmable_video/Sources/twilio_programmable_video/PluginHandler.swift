@@ -608,20 +608,28 @@ public class PluginHandler: BaseListener {
     }
 
     private func getStats(result:@escaping FlutterResult) {
-        // Anything other than a connected Room resolves to `null` — which is what
-        // `programmable_video.dart` already expects, and what Android returns —
-        // because the alternative is a `FlutterResult` that is never fulfilled and a
-        // Dart future that stays pending forever:
+        // Only a connected Room is asked for stats. Everything else resolves to `null`,
+        // which is what `programmable_video.dart` already expects, because the
+        // alternative is a `FlutterResult` that is never fulfilled and a Dart future
+        // that stays pending forever — and a method channel has no timeout to recover
+        // from that:
         //
         //  - With no Room at all, the trailing closure below is simply never reached.
-        //  - `TVIRoom getStatsWithBlock:` documents that a Room in the
-        //    `disconnected` state does not deliver reports, so the block is dropped.
-        //    That state is reachable here because `disconnect()` does not clear
-        //    this reference the way its Android counterpart does, and a
-        //    server-side disconnect never goes through `disconnect()` at all.
-        //  - `connecting`/`reconnecting` are not documented either way. Resolving to
-        //    `null` a little early is harmless (the Dart side is null-tolerant);
-        //    hanging is not, so they take the safe branch too.
+        //  - `TVIRoom getStatsWithBlock:` documents that a Room in the `disconnected`
+        //    state does not deliver reports, so the block is dropped. That state is
+        //    reachable here because nothing clears this reference: `disconnect()`
+        //    leaves it in place, and a server-side disconnect never goes through
+        //    `disconnect()` at all.
+        //  - `connecting` and `reconnecting` are documented neither way, and both can
+        //    reach `disconnected` while a request is outstanding, which drops it. A
+        //    reconnecting Room may also have no transport left at all:
+        //    `roomIsReconnecting(room:error:)` fires for a lost *signaling* connection
+        //    as much as a media one, including when the app is backgrounded. Reports
+        //    taken mid-outage are worth little anyway, so both take the safe branch —
+        //    resolving `null` early is recoverable, hanging is not.
+        //
+        // A Room that disconnects after a request has been accepted is a residual and
+        // much narrower window that cannot be closed from here.
         //
         // No debug() here on purpose: `handle()` deliberately skips its log line for
         // `getStats` because apps poll it to drive animations, and logging on the

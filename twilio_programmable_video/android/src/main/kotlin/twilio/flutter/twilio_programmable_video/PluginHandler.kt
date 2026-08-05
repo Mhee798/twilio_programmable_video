@@ -33,6 +33,7 @@ import com.twilio.video.PcmaCodec
 import com.twilio.video.PcmuCodec
 import com.twilio.video.RemoteAudioTrackPublication
 import com.twilio.video.RemoteParticipant
+import com.twilio.video.Room
 import com.twilio.video.VideoCodec
 import com.twilio.video.VideoDimensions
 import com.twilio.video.VideoFormat
@@ -547,12 +548,31 @@ class PluginHandler : MethodCallHandler, ActivityAware, BaseListener {
     }
 
     private fun getStats(result: MethodChannel.Result) {
-        // Outside a Room there is nothing to report. The result has to be
-        // fulfilled explicitly here — leaving it to a safe-call on the Room would
-        // skip the callback and leave the Dart future pending forever. Dart maps
-        // this null onto a null StatsReport list.
+        // Only a connected Room is asked for stats; everything else resolves to null,
+        // which Dart maps onto a null StatsReport list. The result has to be fulfilled
+        // explicitly on those paths — leaving it to a safe-call on the Room, or to a
+        // callback the SDK never invokes, leaves the Dart future pending forever, and a
+        // method channel has no timeout to recover from that.
+        //
+        //  - Outside a Room there is nothing to report.
+        //  - `Room.getStats` drops the listener without invoking it while the Room is
+        //    DISCONNECTED. That state is reachable because `RoomListener.onDisconnected`
+        //    does not clear the reference — only an app-initiated `disconnect()` does —
+        //    so a poll after the server ends the call used to hang here.
+        //  - CONNECTING and RECONNECTING do reach the SDK, which queues the listener and
+        //    pops one entry per report the core delivers. A request the core declines in
+        //    those states is never popped, so it both hangs and shifts every later poll
+        //    onto the previous poll's result until the Room is released. Reports taken
+        //    mid-outage are worth little anyway, so they resolve to null too — matching
+        //    the iOS handler, which applies the same rule for the same reason.
+        //
+        // A Room that disconnects after a request has been accepted is a residual and
+        // much narrower window; the SDK flushes those listeners with an empty list when
+        // it releases the Room, so they resolve rather than hang.
         val room = TwilioProgrammableVideoPlugin.roomListenerOrNull?.room
-                ?: return result.success(null)
+        if (room == null || room.state != Room.State.CONNECTED) {
+            return result.success(null)
+        }
 
         room.getStats {
             result.success(StatsMapper.statsReportsToMap(it))
