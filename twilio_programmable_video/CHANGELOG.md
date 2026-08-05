@@ -83,14 +83,21 @@
 - **iOS BREAKING**: bumped `TwilioVideo` to `>= 5.11.3, < 6.0` (resolving to 5.11.3, was
   `~> 4.6`/4.6.3) in both the podspec and `Package.swift`. The only API the Video SDK removed
   between the two versions is `IsacCodec`, dropped in 5.8.0 when the SDK moved to WebRTC 112 — so
-  passing `IsacCodec()` in `preferredAudioCodecs` now selects opus instead of iSAC (and asking for
-  both no longer produces a preference list with opus twice). Android has behaved that way since the
-  7.7.0 bump, so the two platforms agree again. Also note 5.x drops the `armv7` device and `i386`
-  simulator slices — the xcframework ships `ios-arm64` and `ios-arm64_x86_64-simulator` — which
-  matters for apps still building 32-bit device slices.
+  passing `IsacCodec()` in `preferredAudioCodecs` now selects opus instead of iSAC. Android has
+  behaved that way since the 7.7.0 bump, so the two platforms agree again. Also note 5.x drops the
+  `armv7` device and `i386` simulator slices — the xcframework ships `ios-arm64` and
+  `ios-arm64_x86_64-simulator` — which matters for apps still building 32-bit device slices.
   Apps with an existing `ios/Podfile.lock` cannot pick this up with `pod install` — CocoaPods
   refuses to change a development pod's constraints from a lockfile and tells you to run
   **`pod update TwilioVideo`** instead. SwiftPM consumers need no action.
+- **Android and iOS**: `preferredAudioCodecs` and `preferredVideoCodecs` no longer hand the SDK a
+  preference list containing the same codec twice. Passing both `IsacCodec()` and `OpusCodec()` now
+  produces one opus entry rather than two, and an unrecognised codec name — which both platforms
+  fall back to opus and VP8 for — no longer duplicates an entry that was also requested by name.
+  Neither SDK rejects duplicates, so this only ever produced a meaningless list, not an error.
+  Note that the *order* of both lists still does not reach either native platform: the platform
+  interface serialises them as maps, and the standard message codec decodes maps into an unordered
+  `NSDictionary`/`HashMap`. Only the web implementation honours the order today.
 - **iOS**: replaced the deprecated `AudioDeviceFormatChanged` with `AudioDeviceReinitialize` in
   `AVAudioEngineDevice`. TwilioVideo deprecated the former in 5.4.0 and will remove it in 6.0; the
   two are equivalent for this call site, so custom audio device behaviour is unchanged.

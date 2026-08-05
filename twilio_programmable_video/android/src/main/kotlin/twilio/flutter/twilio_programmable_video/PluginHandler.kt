@@ -632,14 +632,23 @@ class PluginHandler : MethodCallHandler, ActivityAware, BaseListener {
 
                 val audioCodecs = ArrayList<AudioCodec>()
                 for ((audioCodec) in preferredAudioCodecs) {
-                    when (audioCodec) {
+                    val codec: AudioCodec = when (audioCodec) {
                         // IsacCodec removed in SDK 7.7.0+ - ISAC codec no longer supported in WebRTC
-                        // "isac" -> audioCodecs.add(IsacCodec())
-                        OpusCodec.NAME -> audioCodecs.add(OpusCodec())
-                        PcmaCodec.NAME -> audioCodecs.add(PcmaCodec())
-                        PcmuCodec.NAME -> audioCodecs.add(PcmuCodec())
-                        G722Codec.NAME -> audioCodecs.add(G722Codec())
-                        else -> audioCodecs.add(OpusCodec())
+                        // "isac" -> IsacCodec()
+                        OpusCodec.NAME -> OpusCodec()
+                        PcmaCodec.NAME -> PcmaCodec()
+                        PcmuCodec.NAME -> PcmuCodec()
+                        G722Codec.NAME -> G722Codec()
+                        else -> OpusCodec() // "isac" lands here too, along with anything unrecognised
+                    }
+
+                    // "isac" and "opus" both map onto opus now, and a preference list holding
+                    // the same entry twice is meaningless, so collapse it — the iOS handler
+                    // does the same. Dart sends this as a map keyed by codec name, so exact
+                    // duplicates never arrive and that pair is the only one that can reach
+                    // here twice; both entries are equal, so keeping either is correct.
+                    if (audioCodecs.none { it.name == codec.name }) {
+                        audioCodecs.add(codec)
                     }
                 }
                 debug("connect => setting audioCodecs to '${audioCodecs.joinToString(", ")}'")
@@ -652,11 +661,17 @@ class PluginHandler : MethodCallHandler, ActivityAware, BaseListener {
 
                 val videoCodecs = ArrayList<VideoCodec>()
                 for ((videoCodec) in preferredVideoCodecs) {
-                    when (videoCodec) {
-                        Vp8Codec.NAME -> videoCodecs.add(Vp8Codec()) // TODO(WLFN): It has an optional parameter, need to figure out for what: https://github.com/twilio/video-quickstart-android/blob/master/quickstartKotlin/src/main/java/com/twilio/video/quickstart/kotlin/VideoActivity.kt#L106
-                        Vp9Codec.NAME -> videoCodecs.add(Vp9Codec())
-                        H264Codec.NAME -> videoCodecs.add(H264Codec())
-                        else -> videoCodecs.add(Vp8Codec())
+                    val codec: VideoCodec = when (videoCodec) {
+                        Vp8Codec.NAME -> Vp8Codec() // TODO(WLFN): It has an optional parameter, need to figure out for what: https://github.com/twilio/video-quickstart-android/blob/master/quickstartKotlin/src/main/java/com/twilio/video/quickstart/kotlin/VideoActivity.kt#L106
+                        Vp9Codec.NAME -> Vp9Codec()
+                        H264Codec.NAME -> H264Codec()
+                        else -> Vp8Codec()
+                    }
+
+                    // Same collapse as the audio list above: an unrecognised name falls
+                    // through to VP8, so asking for it alongside "VP8" would list VP8 twice.
+                    if (videoCodecs.none { it.name == codec.name }) {
+                        videoCodecs.add(codec)
                     }
                 }
                 debug("connect => setting videoCodecs to '${videoCodecs.joinToString(", ")}'")

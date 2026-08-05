@@ -728,9 +728,21 @@ public class PluginHandler: BaseListener {
                         codec = OpusCodec()
                     }
 
-                    // Requesting both "isac" and "opus" now yields the same codec twice,
-                    // and `preferredAudioCodecs` is an ordered preference list, so keep the
-                    // first occurrence rather than handing the SDK a duplicate entry.
+                    // Requesting both "isac" and "opus" now maps onto the same codec, and a
+                    // preference list with the same entry twice is meaningless, so it is
+                    // collapsed. Dart already collapses exact duplicates — it sends this as a
+                    // map keyed by codec name — so this pair is the only one that can reach
+                    // here twice, and both entries are equal, which is why keeping either one
+                    // is correct. The video loop below collapses duplicates for the same
+                    // reason: its `default` branch can produce a second Vp8Codec.
+                    //
+                    // Known limitation, and it applies to both lists: they are documented as
+                    // *ordered* preference lists, but the order the caller chose does not
+                    // survive the channel. ConnectOptionsModel sends a Map, and the standard
+                    // codec decodes maps into an NSDictionary here and a HashMap on Android,
+                    // neither of which preserves insertion order. (programmable_video_web
+                    // sends a List and does honour it.) Fixing that means changing the
+                    // platform interface to send a List, across all three platforms.
                     if !audioCodecs.contains(where: { $0.name == codec.name }) {
                         audioCodecs.append(codec)
                     }
@@ -743,13 +755,20 @@ public class PluginHandler: BaseListener {
             if let preferredVideoCodecs = optionsObj["preferredVideoCodecs"] as? [String: String] {
                 var videoCodecs: [VideoCodec] = []
                 for (_, videoCodec) in preferredVideoCodecs {
+                    let codec: VideoCodec
                     switch videoCodec {
                     case "VP9":
-                        videoCodecs.append(Vp9Codec())
+                        codec = Vp9Codec()
                     case "H264":
-                        videoCodecs.append(H264Codec())
+                        codec = H264Codec()
                     default: // or VP8
-                        videoCodecs.append(Vp8Codec())
+                        codec = Vp8Codec()
+                    }
+
+                    // Same collapse as the audio list above: an unrecognised name falls
+                    // through to VP8, so asking for it alongside "VP8" would list VP8 twice.
+                    if !videoCodecs.contains(where: { $0.name == codec.name }) {
+                        videoCodecs.append(codec)
                     }
                 }
                 self.debug("connect => setting preferredVideoCodecs to '\(videoCodecs)'")
