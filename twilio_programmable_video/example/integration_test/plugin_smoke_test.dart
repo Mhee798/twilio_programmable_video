@@ -41,8 +41,14 @@ import 'package:twilio_programmable_video/twilio_programmable_video.dart';
 /// `example/android` still applies Flutter's Gradle plugin the old imperative way,
 /// which Flutter 3.44 rejects outright; `example/ios` fails to build because
 /// `cloud_functions` 1.1.2 does not compile against the Firebase 9.6.0 that
-/// `firebase_core` 1.24.0 pulls in. Until both are migrated, run it from a
-/// throwaway `flutter create` host app with the plugin as a path dependency:
+/// `firebase_core` 1.24.0 pulls in. `example/ios/Podfile.lock` is stale on top of
+/// that — it still names plugin 0.11.1 and `TwilioVideo (~> 4.6)`/4.6.3 — and is
+/// left that way deliberately, because regenerating it drags in the Firebase bump
+/// that causes the build failure above. A `pod install` there will complain that a
+/// development pod's constraints changed and ask for `pod update TwilioVideo`; that
+/// is expected, not a symptom of a broken podspec. Until both are migrated, run
+/// this from a throwaway `flutter create` host app with the plugin as a path
+/// dependency:
 ///
 ///     flutter create --platforms=ios itest_host
 ///     # pubspec.yaml: twilio_programmable_video: {path: <repo>/twilio_programmable_video}
@@ -57,10 +63,12 @@ import 'package:twilio_programmable_video/twilio_programmable_video.dart';
 /// rather than that the SDK loaded; and `deviceHasReceiver` keys off
 /// `userInterfaceIdiom`, so an iPad target returns false by design.
 ///
-/// The speakerphone cases skip themselves on iOS along with the granted-permission
-/// case: `bluetoothPreferred` and the headset-state guard they pin down are Android
-/// behaviour (PluginHandler.setSpeakerPhoneOnInternal), and iOS routes audio through
-/// AVAudioSession instead.
+/// The two speakerphone cases skip themselves for two separate reasons, in this
+/// order: not Android at all — `bluetoothPreferred` and the headset-state guard they
+/// pin down are Android behaviour (PluginHandler.setSpeakerPhoneOnInternal) and iOS
+/// routes audio through AVAudioSession — or Android with `BLUETOOTH_CONNECT` granted,
+/// which makes the read racy as described above. So on iOS this suite reduces to the
+/// channel round-trips: the two skips are expected there, not a regression.
 ///
 /// `requestPermissionForCameraAndMicrophone()` is deliberately excluded — it raises
 /// a system dialog and would hang an unattended run.
@@ -82,9 +90,22 @@ void main() {
   /// proxy is never bound, none of that fires, and the read is stable.
   ///
   /// `.status` queries without prompting, so it is safe in an unattended run.
-  Future<bool> canReadHeadsetState() async {
-    if (!Platform.isAndroid) return true;
-    return (await Permission.bluetoothConnect.status).isGranted;
+  ///
+  /// Android-only: the callers guard on the platform first, because "the state is
+  /// readable" and "this platform has no such state" are different reasons to skip
+  /// and want different messages.
+  Future<bool> canReadHeadsetState() async => (await Permission.bluetoothConnect.status).isGranted;
+
+  /// Skips the calling test on anything but Android, with a reason that says why.
+  ///
+  /// The speakerphone cases below pin down `PluginHandler.setSpeakerPhoneOnInternal`,
+  /// which is Android's own routing guard; iOS has no counterpart because it routes
+  /// through `AVAudioSession`.
+  bool skipUnlessAndroid() {
+    if (Platform.isAndroid) return false;
+    markTestSkipped('speakerphone routing is Android behaviour (PluginHandler.'
+        'setSpeakerPhoneOnInternal); iOS routes through AVAudioSession');
+    return true;
   }
 
   group('native channel round-trips', () {
@@ -94,6 +115,7 @@ void main() {
     });
 
     testWidgets('setSpeakerphoneOn state survives the round trip to native', (_) async {
+      if (skipUnlessAndroid()) return;
       if (await canReadHeadsetState()) {
         markTestSkipped('asynchronous re-routing makes isSpeakerphoneOn racy once the '
             'headset profile proxy is bound; run without BLUETOOTH_CONNECT to assert it');
@@ -139,6 +161,7 @@ void main() {
     // be the correct answer, and the asynchronous re-routing described above makes the
     // read racy anyway.
     testWidgets('speakerphone still applies with bluetoothPreferred left at its default', (_) async {
+      if (skipUnlessAndroid()) return;
       if (await canReadHeadsetState()) {
         markTestSkipped('this pins the unreadable-headset-state path; '
             'run without BLUETOOTH_CONNECT to exercise it');
