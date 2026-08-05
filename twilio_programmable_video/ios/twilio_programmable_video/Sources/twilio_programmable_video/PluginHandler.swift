@@ -608,7 +608,38 @@ public class PluginHandler: BaseListener {
     }
 
     private func getStats(result:@escaping FlutterResult) {
-        SwiftTwilioProgrammableVideoPlugin.roomListener?.room?.getStats {
+        // Only a connected Room is asked for stats. Everything else resolves to `null`,
+        // which is what `programmable_video.dart` already expects, because the
+        // alternative is a `FlutterResult` that is never fulfilled and a Dart future
+        // that stays pending forever — and a method channel has no timeout to recover
+        // from that:
+        //
+        //  - With no Room at all, the trailing closure below is simply never reached.
+        //  - `TVIRoom getStatsWithBlock:` documents that a Room in the `disconnected`
+        //    state does not deliver reports, so the block is dropped. That state is
+        //    reachable here because nothing clears this reference: `disconnect()`
+        //    leaves it in place, and a server-side disconnect never goes through
+        //    `disconnect()` at all.
+        //  - `connecting` and `reconnecting` are documented neither way, and both can
+        //    reach `disconnected` while a request is outstanding, which drops it. A
+        //    reconnecting Room may also have no transport left at all:
+        //    `roomIsReconnecting(room:error:)` fires for a lost *signaling* connection
+        //    as much as a media one, including when the app is backgrounded. Reports
+        //    taken mid-outage are worth little anyway, so both take the safe branch —
+        //    resolving `null` early is recoverable, hanging is not.
+        //
+        // A Room that disconnects after a request has been accepted is a residual and
+        // much narrower window that cannot be closed from here.
+        //
+        // No debug() here on purpose: `handle()` deliberately skips its log line for
+        // `getStats` because apps poll it to drive animations, and logging on the
+        // not-connected path would put that noise straight back.
+        guard let room = SwiftTwilioProgrammableVideoPlugin.roomListener?.room,
+              room.state == .connected else {
+            return result(nil)
+        }
+
+        room.getStats {
             result(StatsMapper.statsReportsToDict($0))
         }
     }
@@ -681,17 +712,39 @@ public class PluginHandler: BaseListener {
             if let preferredAudioCodecs = optionsObj["preferredAudioCodecs"] as? [String: String] {
                 var audioCodecs: [AudioCodec] = []
                 for (_, audioCodec) in preferredAudioCodecs {
+                    let codec: AudioCodec
                     switch audioCodec {
-                    case "isac":
-                        audioCodecs.append(IsacCodec())
                     case "PCMA":
-                        audioCodecs.append(PcmaCodec())
+                        codec = PcmaCodec()
                     case "PCMU":
-                        audioCodecs.append(PcmuCodec())
+                        codec = PcmuCodec()
                     case "G722":
-                        audioCodecs.append(G722Codec())
+                        codec = G722Codec()
+                    // "isac" lands here too: `IsacCodec` was removed in TwilioVideo 5.8.0
+                    // along with the WebRTC 112 upgrade, which dropped iSAC, and Android
+                    // lost it in Twilio 7.7.0 for the same reason, so both platforms map
+                    // that request onto opus.
                     default: // or opus
-                        audioCodecs.append(OpusCodec())
+                        codec = OpusCodec()
+                    }
+
+                    // Requesting both "isac" and "opus" now maps onto the same codec, and a
+                    // preference list with the same entry twice is meaningless, so it is
+                    // collapsed. Dart already collapses exact duplicates — it sends this as a
+                    // map keyed by codec name — so this pair is the only one that can reach
+                    // here twice, and both entries are equal, which is why keeping either one
+                    // is correct. The video loop below collapses duplicates for the same
+                    // reason: its `default` branch can produce a second Vp8Codec.
+                    //
+                    // Known limitation, and it applies to both lists: they are documented as
+                    // *ordered* preference lists, but the order the caller chose does not
+                    // survive the channel. ConnectOptionsModel sends a Map, and the standard
+                    // codec decodes maps into an NSDictionary here and a HashMap on Android,
+                    // neither of which preserves insertion order. (programmable_video_web
+                    // sends a List and does honour it.) Fixing that means changing the
+                    // platform interface to send a List, across all three platforms.
+                    if !audioCodecs.contains(where: { $0.name == codec.name }) {
+                        audioCodecs.append(codec)
                     }
                 }
                 self.debug("connect => setting preferredAudioCodecs to '\(audioCodecs)'")
@@ -702,13 +755,20 @@ public class PluginHandler: BaseListener {
             if let preferredVideoCodecs = optionsObj["preferredVideoCodecs"] as? [String: String] {
                 var videoCodecs: [VideoCodec] = []
                 for (_, videoCodec) in preferredVideoCodecs {
+                    let codec: VideoCodec
                     switch videoCodec {
                     case "VP9":
-                        videoCodecs.append(Vp9Codec())
+                        codec = Vp9Codec()
                     case "H264":
-                        videoCodecs.append(H264Codec())
+                        codec = H264Codec()
                     default: // or VP8
-                        videoCodecs.append(Vp8Codec())
+                        codec = Vp8Codec()
+                    }
+
+                    // Same collapse as the audio list above: an unrecognised name falls
+                    // through to VP8, so asking for it alongside "VP8" would list VP8 twice.
+                    if !videoCodecs.contains(where: { $0.name == codec.name }) {
+                        videoCodecs.append(codec)
                     }
                 }
                 self.debug("connect => setting preferredVideoCodecs to '\(videoCodecs)'")

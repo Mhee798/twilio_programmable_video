@@ -28,9 +28,10 @@
 - **Android**: `getStats()` called before connecting to a `Room` returned a Kotlin
   `UninitializedPropertyAccessException` wrapped in a `PlatformException`. It now resolves to `null`,
   which is what the Dart layer already expected. The same unguarded access is fixed across
-  `disconnect()` and the other room-dependent method channel calls. **iOS still hangs in this case**
-  — its handler safe-calls the whole chain and never fulfils the result — which is tracked
-  separately.
+  `disconnect()` and the other room-dependent method channel calls. `getStats()` *after* a `Room`
+  ended could hang the same way and is fixed too — see the `getStats()` entry below, which covers
+  both platforms. The iOS handlers other than `getStats` are unchanged and still operate on a stale
+  `Room` after a disconnect where Android answers `NOT_FOUND`.
 - **Android**: publishing a `LocalVideoTrack` without being connected to a `Room` reported success
   while publishing nothing, and dropped the track from the plugin's registry so it could never be
   released — the camera stayed held. It now answers `NOT_FOUND`, matching `unpublish`.
@@ -64,6 +65,45 @@
   `@objc` and to Swift via a `typealias`, so the generated plugin registrants keep working. Only
   hand-written Objective-C that `#import`s the header directly is affected — replace the import with
   `@import twilio_programmable_video;`.
+- **Android and iOS**: `getStats()` outside a *connected* `Room` could leave its `Future` pending
+  forever, and a method channel has no timeout to recover from that. On iOS the handler reached the
+  SDK through an optional chain, so with no `Room` it returned without ever fulfilling the
+  `FlutterResult`; a `disconnected` `Room` did the same, because `TVIRoom getStatsWithBlock:` does
+  not deliver reports in that state. Android was exposed to the same thing after a disconnect it did
+  not initiate: `RoomListener.onDisconnected` does not clear the `Room` (only an app-initiated
+  `disconnect()` does) and `Room.getStats` drops the listener without invoking it while
+  `DISCONNECTED`. Both platforms now resolve to `null` — what `programmable_video.dart` already
+  expected — unless the `Room` is connected. `connecting` and `reconnecting` resolve to `null` as
+  well: both can reach `disconnected` while a request is in flight, a reconnecting `Room` may have
+  lost signalling entirely (`roomIsReconnecting` fires for that too, including on backgrounding),
+  and Android's queued listener is popped one report at a time, so a request the core declines also
+  shifts every later poll onto the previous poll's result. Stats taken mid-outage are worth little,
+  so both platforms prefer the recoverable answer. `example/integration_test/plugin_smoke_test.dart`
+  covers the never-connected case on both platforms.
+- **iOS BREAKING**: bumped `TwilioVideo` to `>= 5.11.3, < 6.0` (resolving to 5.11.3, was
+  `~> 4.6`/4.6.3) in both the podspec and `Package.swift`. The only API the Video SDK removed
+  between the two versions is `IsacCodec`, dropped in 5.8.0 when the SDK moved to WebRTC 112 — so
+  passing `IsacCodec()` in `preferredAudioCodecs` now selects opus instead of iSAC. Android has
+  behaved that way since the 7.7.0 bump, so the two platforms agree again. Also note 5.x drops the
+  `armv7` device and `i386` simulator slices — the xcframework ships `ios-arm64` and
+  `ios-arm64_x86_64-simulator` — which matters for apps still building 32-bit device slices.
+  Apps with an existing `ios/Podfile.lock` cannot pick this up with `pod install` — CocoaPods
+  refuses to change a development pod's constraints from a lockfile and tells you to run
+  **`pod update TwilioVideo`** instead. SwiftPM consumers need no action.
+- `IsacCodec` — re-exported from `twilio_programmable_video_platform_interface` — is now
+  `@Deprecated`, so code that still asks for iSAC gets a compile-time hint instead of silently
+  getting opus. It keeps working; it has simply had no effect since both SDKs dropped the codec.
+- **Android and iOS**: `preferredAudioCodecs` and `preferredVideoCodecs` no longer hand the SDK a
+  preference list containing the same codec twice. Passing both `IsacCodec()` and `OpusCodec()` now
+  produces one opus entry rather than two, and an unrecognised codec name — which both platforms
+  fall back to opus and VP8 for — no longer duplicates an entry that was also requested by name.
+  Neither SDK rejects duplicates, so this only ever produced a meaningless list, not an error.
+  Note that the *order* of both lists still does not reach either native platform: the platform
+  interface serialises them as maps, and the standard message codec decodes maps into an unordered
+  `NSDictionary`/`HashMap`. Only the web implementation honours the order today.
+- **iOS**: replaced the deprecated `AudioDeviceFormatChanged` with `AudioDeviceReinitialize` in
+  `AVAudioEngineDevice`. TwilioVideo deprecated the former in 5.4.0 and will remove it in 6.0; the
+  two are equivalent for this call site, so custom audio device behaviour is unchanged.
 - **iOS**: the plugin now ships a `Package.swift`, so it builds under Swift Package Manager in
   addition to CocoaPods. Swift sources moved to `ios/twilio_programmable_video/Sources/twilio_programmable_video/`;
   both build systems compile that same tree. **Building via SwiftPM requires Flutter 3.44 or

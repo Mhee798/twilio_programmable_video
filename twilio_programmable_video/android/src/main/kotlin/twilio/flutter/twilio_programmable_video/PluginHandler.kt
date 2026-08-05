@@ -33,6 +33,7 @@ import com.twilio.video.PcmaCodec
 import com.twilio.video.PcmuCodec
 import com.twilio.video.RemoteAudioTrackPublication
 import com.twilio.video.RemoteParticipant
+import com.twilio.video.Room
 import com.twilio.video.VideoCodec
 import com.twilio.video.VideoDimensions
 import com.twilio.video.VideoFormat
@@ -547,12 +548,31 @@ class PluginHandler : MethodCallHandler, ActivityAware, BaseListener {
     }
 
     private fun getStats(result: MethodChannel.Result) {
-        // Outside a Room there is nothing to report. The result has to be
-        // fulfilled explicitly here — leaving it to a safe-call on the Room would
-        // skip the callback and leave the Dart future pending forever. Dart maps
-        // this null onto a null StatsReport list.
+        // Only a connected Room is asked for stats; everything else resolves to null,
+        // which Dart maps onto a null StatsReport list. The result has to be fulfilled
+        // explicitly on those paths — leaving it to a safe-call on the Room, or to a
+        // callback the SDK never invokes, leaves the Dart future pending forever, and a
+        // method channel has no timeout to recover from that.
+        //
+        //  - Outside a Room there is nothing to report.
+        //  - `Room.getStats` drops the listener without invoking it while the Room is
+        //    DISCONNECTED. That state is reachable because `RoomListener.onDisconnected`
+        //    does not clear the reference — only an app-initiated `disconnect()` does —
+        //    so a poll after the server ends the call used to hang here.
+        //  - CONNECTING and RECONNECTING do reach the SDK, which queues the listener and
+        //    pops one entry per report the core delivers. A request the core declines in
+        //    those states is never popped, so it both hangs and shifts every later poll
+        //    onto the previous poll's result until the Room is released. Reports taken
+        //    mid-outage are worth little anyway, so they resolve to null too — matching
+        //    the iOS handler, which applies the same rule for the same reason.
+        //
+        // A Room that disconnects after a request has been accepted is a residual and
+        // much narrower window; the SDK flushes those listeners with an empty list when
+        // it releases the Room, so they resolve rather than hang.
         val room = TwilioProgrammableVideoPlugin.roomListenerOrNull?.room
-                ?: return result.success(null)
+        if (room == null || room.state != Room.State.CONNECTED) {
+            return result.success(null)
+        }
 
         room.getStats {
             result.success(StatsMapper.statsReportsToMap(it))
@@ -612,14 +632,23 @@ class PluginHandler : MethodCallHandler, ActivityAware, BaseListener {
 
                 val audioCodecs = ArrayList<AudioCodec>()
                 for ((audioCodec) in preferredAudioCodecs) {
-                    when (audioCodec) {
+                    val codec: AudioCodec = when (audioCodec) {
                         // IsacCodec removed in SDK 7.7.0+ - ISAC codec no longer supported in WebRTC
-                        // "isac" -> audioCodecs.add(IsacCodec())
-                        OpusCodec.NAME -> audioCodecs.add(OpusCodec())
-                        PcmaCodec.NAME -> audioCodecs.add(PcmaCodec())
-                        PcmuCodec.NAME -> audioCodecs.add(PcmuCodec())
-                        G722Codec.NAME -> audioCodecs.add(G722Codec())
-                        else -> audioCodecs.add(OpusCodec())
+                        // "isac" -> IsacCodec()
+                        OpusCodec.NAME -> OpusCodec()
+                        PcmaCodec.NAME -> PcmaCodec()
+                        PcmuCodec.NAME -> PcmuCodec()
+                        G722Codec.NAME -> G722Codec()
+                        else -> OpusCodec() // "isac" lands here too, along with anything unrecognised
+                    }
+
+                    // "isac" and "opus" both map onto opus now, and a preference list holding
+                    // the same entry twice is meaningless, so collapse it — the iOS handler
+                    // does the same. Dart sends this as a map keyed by codec name, so exact
+                    // duplicates never arrive and that pair is the only one that can reach
+                    // here twice; both entries are equal, so keeping either is correct.
+                    if (audioCodecs.none { it.name == codec.name }) {
+                        audioCodecs.add(codec)
                     }
                 }
                 debug("connect => setting audioCodecs to '${audioCodecs.joinToString(", ")}'")
@@ -632,11 +661,17 @@ class PluginHandler : MethodCallHandler, ActivityAware, BaseListener {
 
                 val videoCodecs = ArrayList<VideoCodec>()
                 for ((videoCodec) in preferredVideoCodecs) {
-                    when (videoCodec) {
-                        Vp8Codec.NAME -> videoCodecs.add(Vp8Codec()) // TODO(WLFN): It has an optional parameter, need to figure out for what: https://github.com/twilio/video-quickstart-android/blob/master/quickstartKotlin/src/main/java/com/twilio/video/quickstart/kotlin/VideoActivity.kt#L106
-                        Vp9Codec.NAME -> videoCodecs.add(Vp9Codec())
-                        H264Codec.NAME -> videoCodecs.add(H264Codec())
-                        else -> videoCodecs.add(Vp8Codec())
+                    val codec: VideoCodec = when (videoCodec) {
+                        Vp8Codec.NAME -> Vp8Codec() // TODO(WLFN): It has an optional parameter, need to figure out for what: https://github.com/twilio/video-quickstart-android/blob/master/quickstartKotlin/src/main/java/com/twilio/video/quickstart/kotlin/VideoActivity.kt#L106
+                        Vp9Codec.NAME -> Vp9Codec()
+                        H264Codec.NAME -> H264Codec()
+                        else -> Vp8Codec()
+                    }
+
+                    // Same collapse as the audio list above: an unrecognised name falls
+                    // through to VP8, so asking for it alongside "VP8" would list VP8 twice.
+                    if (videoCodecs.none { it.name == codec.name }) {
+                        videoCodecs.add(codec)
                     }
                 }
                 debug("connect => setting videoCodecs to '${videoCodecs.joinToString(", ")}'")

@@ -37,15 +37,38 @@ import 'package:twilio_programmable_video/twilio_programmable_video.dart';
 /// ever looks at the Bluetooth state, so only the case that deliberately leaves
 /// `bluetoothPreferred` at its default exercises the permission-dependent branch.
 ///
-/// NOTE: `example/android` still applies Flutter's Gradle plugin the old
-/// imperative way, which Flutter 3.44 rejects outright, so this cannot be driven
-/// against an Android target from this directory until that migration lands. Until
-/// then, run it from a throwaway `flutter create` host app with the plugin added as
-/// a path dependency.
+/// NOTE: neither platform can currently host this suite from `example/`.
+/// `example/android` still applies Flutter's Gradle plugin the old imperative way,
+/// which Flutter 3.44 rejects outright; `example/ios` fails to build because
+/// `cloud_functions` 1.1.2 does not compile against the Firebase 9.6.0 that
+/// `firebase_core` 1.24.0 pulls in. `example/ios/Podfile.lock` is stale on top of
+/// that — it still names plugin 0.11.1 and `TwilioVideo (~> 4.6)`/4.6.3 — and is
+/// left that way deliberately, because regenerating it drags in the Firebase bump
+/// that causes the build failure above. A `pod install` there will complain that a
+/// development pod's constraints changed and ask for `pod update TwilioVideo`; that
+/// is expected, not a symptom of a broken podspec. Until both are migrated, run
+/// this from a throwaway `flutter create` host app with the plugin as a path
+/// dependency:
 ///
-/// It is not iOS-clean: the getStats case is skipped there because the iOS handler
-/// never fulfils its result without a Room, and every other case exercises the
-/// Android audio-routing code paths this suite was written for.
+///     flutter create --platforms=ios itest_host
+///     # pubspec.yaml: twilio_programmable_video: {path: <repo>/twilio_programmable_video}
+///     #              dev_dependencies: integration_test: {sdk: flutter}
+///     #                                permission_handler: ^12.0.1
+///     cp <repo>/twilio_programmable_video/example/integration_test/*.dart itest_host/integration_test/
+///     cd itest_host && flutter test integration_test/plugin_smoke_test.dart -d <device>
+///
+/// Two caveats about what iOS coverage actually means here:
+/// `CameraSource#getSources` is hardcoded to front+back on iOS rather than
+/// enumerating through the Twilio SDK, so there it proves the channel contract
+/// rather than that the SDK loaded; and `deviceHasReceiver` keys off
+/// `userInterfaceIdiom`, so an iPad target returns false by design.
+///
+/// The two speakerphone cases skip themselves for two separate reasons, in this
+/// order: not Android at all — `bluetoothPreferred` and the headset-state guard they
+/// pin down are Android behaviour (PluginHandler.setSpeakerPhoneOnInternal) and iOS
+/// routes audio through AVAudioSession — or Android with `BLUETOOTH_CONNECT` granted,
+/// which makes the read racy as described above. So on iOS this suite reduces to the
+/// channel round-trips: the two skips are expected there, not a regression.
 ///
 /// `requestPermissionForCameraAndMicrophone()` is deliberately excluded — it raises
 /// a system dialog and would hang an unattended run.
@@ -67,9 +90,22 @@ void main() {
   /// proxy is never bound, none of that fires, and the read is stable.
   ///
   /// `.status` queries without prompting, so it is safe in an unattended run.
-  Future<bool> canReadHeadsetState() async {
-    if (!Platform.isAndroid) return true;
-    return (await Permission.bluetoothConnect.status).isGranted;
+  ///
+  /// Android-only: the callers guard on the platform first, because "the state is
+  /// readable" and "this platform has no such state" are different reasons to skip
+  /// and want different messages.
+  Future<bool> canReadHeadsetState() async => (await Permission.bluetoothConnect.status).isGranted;
+
+  /// Skips the calling test on anything but Android, with a reason that says why.
+  ///
+  /// The speakerphone cases below pin down `PluginHandler.setSpeakerPhoneOnInternal`,
+  /// which is Android's own routing guard; iOS has no counterpart because it routes
+  /// through `AVAudioSession`.
+  bool skipUnlessAndroid() {
+    if (Platform.isAndroid) return false;
+    markTestSkipped('speakerphone routing is Android behaviour (PluginHandler.'
+        'setSpeakerPhoneOnInternal); iOS routes through AVAudioSession');
+    return true;
   }
 
   group('native channel round-trips', () {
@@ -79,6 +115,7 @@ void main() {
     });
 
     testWidgets('setSpeakerphoneOn state survives the round trip to native', (_) async {
+      if (skipUnlessAndroid()) return;
       if (await canReadHeadsetState()) {
         markTestSkipped('asynchronous re-routing makes isSpeakerphoneOn racy once the '
             'headset profile proxy is bound; run without BLUETOOTH_CONNECT to assert it');
@@ -124,6 +161,7 @@ void main() {
     // be the correct answer, and the asynchronous re-routing described above makes the
     // read racy anyway.
     testWidgets('speakerphone still applies with bluetoothPreferred left at its default', (_) async {
+      if (skipUnlessAndroid()) return;
       if (await canReadHeadsetState()) {
         markTestSkipped('this pins the unreadable-headset-state path; '
             'run without BLUETOOTH_CONNECT to exercise it');
@@ -170,33 +208,30 @@ void main() {
     testWidgets('CameraSource.getSources reaches the Twilio SDK and returns cameras', (_) async {
       final sources = await CameraSource.getSources();
 
-      // This call goes through the Twilio SDK's camera enumeration, so an empty
-      // list would mean the AAR did not load or the channel contract changed.
-      // Emulators expose at least a back camera.
+      // On Android this goes through the Twilio SDK's camera enumeration, so an
+      // empty list would mean the AAR did not load or the channel contract changed.
+      // iOS hardcodes front+back instead of asking the SDK, so there it only proves
+      // the channel contract. Every emulator and simulator exposes at least one.
       expect(sources, isNotEmpty);
       for (final source in sources) {
         expect(source.cameraId, isNotEmpty);
       }
     });
 
-    // Regression test: PluginHandler.getStats used to read the `lateinit
-    // roomListener` unconditionally, so calling it before connecting to a Room
-    // died with a Kotlin UninitializedPropertyAccessException that surfaced in
-    // Dart as an opaque PlatformException. It now resolves the Room through
-    // roomListenerOrNull and fulfils the result with null, which is the branch
-    // programmable_video.dart already had waiting.
+    // Regression test for both platforms, which used to fail differently.
     //
-    // Android only, and not because of the platform channel: the iOS handler
-    // (ios/.../PluginHandler.swift, `roomListener?.room?.getStats { … }`) safe-calls
-    // the whole chain, so with no Room the FlutterResult is never fulfilled and this
-    // await would hang until the harness times out. That is a real iOS defect — an
-    // app polling getStats() after disconnect() gets a permanently pending Future —
-    // but it is outside this change and needs its own fix.
+    // Android read the `lateinit roomListener` unconditionally, so calling this
+    // before connecting died with a Kotlin UninitializedPropertyAccessException
+    // surfaced as an opaque PlatformException. iOS reached the SDK through an
+    // optional chain, so the trailing closure was never entered and the
+    // FlutterResult was never fulfilled — this await simply never returned. Method
+    // channels have no timeout, so that one was unrecoverable rather than merely
+    // wrong.
+    //
+    // Both now resolve to null, which is the branch programmable_video.dart already
+    // had waiting. Without the iOS half of the fix this test runs past 600 s instead
+    // of failing, so a hang here means that regressed.
     testWidgets('getStats outside a Room resolves to null instead of throwing', (_) async {
-      if (!Platform.isAndroid) {
-        markTestSkipped('getStats without a Room never fulfils its result on iOS');
-        return;
-      }
       final reports = await TwilioProgrammableVideo.getStats();
       expect(reports, isNull);
     });
