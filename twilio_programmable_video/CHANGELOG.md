@@ -90,6 +90,9 @@
   Apps with an existing `ios/Podfile.lock` cannot pick this up with `pod install` — CocoaPods
   refuses to change a development pod's constraints from a lockfile and tells you to run
   **`pod update TwilioVideo`** instead. SwiftPM consumers need no action.
+- `IsacCodec` — re-exported from `twilio_programmable_video_platform_interface` — is now
+  `@Deprecated`, so code that still asks for iSAC gets a compile-time hint instead of silently
+  getting opus. It keeps working; it has simply had no effect since both SDKs dropped the codec.
 - **Android and iOS**: `preferredAudioCodecs` and `preferredVideoCodecs` no longer hand the SDK a
   preference list containing the same codec twice. Passing both `IsacCodec()` and `OpusCodec()` now
   produces one opus entry rather than two, and an unrecognised codec name — which both platforms

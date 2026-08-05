@@ -4,7 +4,12 @@
   was already null-safe; this only drops support for Dart 2 toolchains.
 - Fixed `flutter pub get` failing outright on Dart 3: the `build_runner` dev dependency was pinned to
   `^1.10.0`, which predates null safety, so version solving could not succeed.
-- The public API is unchanged — verified with `dart_apitool diff` against 1.1.0.
+- `IsacCodec` is now `@Deprecated`. Both native SDKs removed iSAC with their WebRTC 112 upgrade
+  (Android in Twilio 7.7.0, iOS in TwilioVideo 5.8.0) and now resolve a request for it to
+  `OpusCodec`, so the class selects opus rather than what its name says. It still compiles and is
+  still accepted by `twilio-video.js` on web, so nothing breaks; it just does nothing useful.
+- The public API is otherwise unchanged — verified with `dart_apitool diff` against 1.1.0. The
+  deprecation above is the only addition and is source-compatible.
 - Internal: constructors now use super parameters, and `analysis_options.yaml` includes
   `flutter_lints` instead of the discontinued `pedantic`. The old include referenced a package that
   was not a dependency of this package at all, so its lint rules had silently never been applied.
