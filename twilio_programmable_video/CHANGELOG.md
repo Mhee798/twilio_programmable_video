@@ -1,5 +1,88 @@
 ## Unreleased
 
+- **Android**: audio was silent on both the speaker *and* the headset when a Bluetooth headset was
+  connected during a call on Android 12+ (API 31). Two faults stacked. First, the code that started
+  Bluetooth SCO only ran when the speaker was off (`applyAudioSettings` called
+  `applyBluetoothSettings` under `if (!audioSettings.speakerEnabled)`), so an app passing
+  `speakerphoneEnabled: true, bluetoothPreferred: true` — the combination the README documents as
+  "Bluetooth if available, otherwise the speaker" — never reached the Bluetooth path at all;
+  `bluetoothPreferred` only ever meant "do not force the speaker while a headset is connected".
+  Second, even once reached, it did not work: `AudioManager.startBluetoothSco` is deprecated from
+  API 31 and no longer moves playout. Measured on Android 16 the framework reported
+  `SCO_AUDIO_STATE_CONNECTED` for the app's own uid while nothing came out of either device.
+
+  Routing now goes through [AudioSwitch](https://github.com/twilio/audioswitch) as one ordered
+  device preference instead of two independent flags — on API 31+ through the
+  `CommDeviceAudioSwitch` variant, which routes with `AudioManager.setCommunicationDevice`, the only
+  call that still moves the route there. `speakerphoneEnabled: true, bluetoothPreferred: true` now
+  means what it says: the speaker, except when a headset is connected. **The Dart API is unchanged**
+  — `setAudioSettings`, `getAudioSettings`, `disableAudioSettings` and `setSpeakerphoneOn` keep
+  their signatures and an app needs no code change.
+
+  Three behaviour changes come with it, all on Android:
+    - A headset that was *already* connected when the call started is now used. It never was
+      before: `BluetoothHeadset.ACTION_CONNECTION_STATE_CHANGED` is not a sticky broadcast, so no
+      event arrived for a connection that predated the plugin registering its receiver.
+    - A **wired** headset now outranks the speaker under every flag combination, matching the
+      Bluetooth behaviour. `speakerphoneEnabled: true` means "the speaker rather than the earpiece".
+    - `getSpeakerphoneOn` reports the selected device rather than `AudioManager.isSpeakerphoneOn`,
+      which on API 31+ is no longer what decides the route. It answers "the speaker is where the
+      current settings send audio", so it keeps its value across `disconnect` rather than tracking
+      the released route. `disableAudioSettings` ends device discovery, and from there it falls
+      back to the `AudioManager` flag until the next `setAudioSettings`.
+    - `disableAudioSettings` now releases the audio route as well as ending route observation, so
+      another app's audio can resume — previously it only unregistered the receiver and the
+      Bluetooth profile proxy and left the route alone. Calling it while a `Room` is still connected
+      therefore ends Bluetooth or speaker routing for that call; the plugin's own example calls it
+      on the line above `Room.disconnect()`, where that makes no difference.
+
+  This adds a dependency on `com.github.davidliu:audioswitch` from JitPack, pinned to the commit
+  `flutter_webrtc` ships. The plugin adds the JitPack repository to the build itself, so a consuming
+  app needs no Gradle change. The fork rather than `com.twilio:audioswitch` because only the fork
+  has `CommDeviceAudioSwitch`; the last upstream release (1.2.5) still toggles `isSpeakerphoneOn`
+  and `startBluetoothSco`.
+- **Android**, two limitations that come with routing through AudioSwitch and are recorded here rather
+  than worked around:
+    - With **two Bluetooth audio devices connected at once**, only the first is reported and used.
+      AudioSwitch orders its available-device set with a comparator that treats two devices of the
+      same class as equal, so the set holds at most one Bluetooth entry; disconnecting that one reads
+      as "no Bluetooth device" and the route falls back to the speaker even though the other is still
+      usable. The `BluetoothProfile.getProfileConnectionState` read this replaces answered for *any*
+      connected headset and so did not have this blind spot — but it needed `BLUETOOTH_CONNECT` and
+      lagged behind the broadcast that prompted it, which is worse on the common single-headset path.
+    - A routing call that the audio stack **rejects from inside one of AudioSwitch's own callbacks**
+      is not caught. The plugin guards every call it makes into AudioSwitch, but AudioSwitch also
+      reaches `AudioManager` from its scanner callbacks: a headset connecting mid-call re-enters
+      the routing path with no frame of the plugin's on the stack, whether that ends in
+      `startBluetoothSco()` (API 23-30) or `setCommunicationDevice()` (API 31+). It cannot be closed
+      from the plugin — every AudioSwitch constructor that accepts a Handler or a Scanner is
+      `internal`, so neither a subclass nor an injected collaborator is available. Calls the plugin
+      makes itself stay guarded as before.
+    - In the same family: if starting device discovery is rejected part-way, the scanner
+      registrations it had already made with `AudioManager` cannot be undone. `AbstractAudioSwitch`
+      only reaches its STARTED state once the scanner has started, so `stop()` on such an instance
+      is a no-op by its own contract, and nothing else can reach the scanner.
+- **Android**: `BLUETOOTH_CONNECT` is no longer needed for Bluetooth audio routing. Devices are
+  discovered through `AudioManager`, which reports a connected headset without any Bluetooth
+  permission, so routing now works in the ungranted case that previously fell back to "no headset
+  connected". The plugin still declares `BLUETOOTH` and `BLUETOOTH_CONNECT` — removing a permission
+  an app may rely on this plugin to declare would break that app's manifest, and the API 21-22 path
+  still binds the headset profile proxy — but an app that only wanted them for routing can now drop
+  its own request.
+- **Android**: wired headset plug/unplug events never reached Dart. The route-change receiver read
+  the intent extra `"portName"` from `ACTION_HEADSET_PLUG`, which has no such extra — the real ones
+  are `state`, `name` and `microphone` — and discarded the whole event when it came back null. Both
+  the routing and the `newDeviceAvailable`/`oldDeviceUnavailable` events now come from AudioSwitch's
+  device list, so the extra is not read at all.
+- **Android**: `newDeviceAvailable`/`oldDeviceUnavailable` now always carry a `deviceName`. It used
+  to be read from a `BluetoothDevice` extra, which needs `BLUETOOTH_CONNECT` on API 31+, and the
+  Dart layer turns a null name into a `SkippableAudioEvent` — so without the grant the events were
+  silently dropped. The name now comes from `AudioDeviceInfo.productName`, which no permission
+  gates. The event names, payload keys and their meanings are unchanged.
+- `NewDeviceAvailableEvent`, `OldDeviceUnavailableEvent` and `SkippableAudioEvent` are now exported
+  from `package:twilio_programmable_video`. `TwilioProgrammableVideo.onAudioNotification` emits
+  them, so the stream could not be used without adding
+  `twilio_programmable_video_platform_interface` as a direct dependency just to name the types.
 - **BREAKING**: the Dart SDK constraint is now `>=3.0.0 <4.0.0` (was `>=2.12.0 <3.0.0`) and the
   Flutter constraint is `>=3.10.0` (was `>=1.17.0`, which predates Dart 3 and could never actually
   satisfy the new SDK range). The package was already null-safe; this only drops support for Dart 2

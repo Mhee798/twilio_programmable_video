@@ -61,19 +61,19 @@ merged manifest whether or not you use Bluetooth routing. If you do not want the
 
 On Android 12 (API 31) and above, `BLUETOOTH_CONNECT` is a runtime permission and **the plugin never
 prompts for it** — `requestPermissionForCameraAndMicrophone()` covers only the camera and the
-microphone. Request it yourself if you want audio routed to a Bluetooth headset. The plugin uses
-`permission_handler` internally but does not re-export it, so add it to your own `pubspec.yaml`:
+microphone.
+
+Audio routing does not need it. The plugin discovers audio devices through `AudioManager`, which
+reports a connected Bluetooth headset without any Bluetooth permission, so Bluetooth routing works
+whether or not the grant is in place. Request it only if your own code reads the Bluetooth state.
+The plugin uses `permission_handler` internally but does not re-export it, so add it to your own
+`pubspec.yaml` if you do:
 
 ```dart
 import 'package:permission_handler/permission_handler.dart';
 
 await Permission.bluetoothConnect.request();
 ```
-
-Without the grant the plugin reports "no headset connected" instead of failing: speaker and receiver
-routing keep working, and an explicit `setAudioSettings`/`setSpeakerphoneOn` request is still
-honoured. Only Bluetooth routing is unavailable. If the user grants it during a call, the plugin
-picks it up on the next `setAudioSettings` call rather than immediately.
 
 ##### Proguard
 
@@ -576,6 +576,10 @@ await TwilioProgrammableVideo.setAudioSettings(speakerphoneEnabled: true, blueto
 
 **Note:**
 
+> On Android a *wired* headset outranks the speaker under every combination of these two flags: `speakerphoneEnabled: true` means "the speaker rather than the earpiece", not "the speaker rather than whatever the user has plugged in". There is no flag to override that.
+
+**Note:**
+
 > Once `setAudioSettings` has been called, the Android and iOS implementations will listen for route changes, and work to ensure that the applied audio settings continue to be used. While this is the case, you can listen for such changes using the `TwilioProgrammableVideo` class.
 
 ```dart
@@ -584,7 +588,7 @@ TwilioProgrammableVideo.onAudioNotification.listen((event) {
 });
 ```
 
-> To disable audio setting management, and route change observation, call `disableAudioSettings` using the `TwilioProgrammableVideo` class.
+> To disable audio setting management, and route change observation, call `disableAudioSettings` using the `TwilioProgrammableVideo` class. On Android this also releases the audio route, which is what lets another app's audio resume — so calling it while still connected to a `Room` ends Bluetooth or speaker routing for the rest of that call.
 
 ```dart
 await TwilioProgrammableVideo.disableAudioSettings();
