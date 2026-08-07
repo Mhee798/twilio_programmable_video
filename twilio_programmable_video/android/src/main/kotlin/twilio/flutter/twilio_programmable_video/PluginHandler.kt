@@ -1,18 +1,12 @@
 package twilio.flutter.twilio_programmable_video
 
-import android.Manifest
 import android.app.Activity
-import android.bluetooth.BluetoothAdapter
-import android.bluetooth.BluetoothProfile
 import android.content.Context
-import android.content.pm.PackageManager
 import android.media.AudioAttributes
 import android.media.AudioDeviceInfo
 import android.media.AudioFocusRequest
 import android.media.AudioManager
 import android.os.Build
-import android.os.Handler
-import android.os.Looper
 import androidx.annotation.NonNull
 import com.twilio.video.AudioCodec
 import com.twilio.video.Camera2Capturer
@@ -72,10 +66,13 @@ class PluginHandler : MethodCallHandler, ActivityAware, BaseListener {
 
     internal var audioSettings: AudioSettings = AudioSettings()
 
+    internal var audioRouter: AudioRouter
+
     @Suppress("ConvertSecondaryConstructorToPrimary")
     constructor(applicationContext: Context) {
         this.applicationContext = applicationContext
         audioManager = applicationContext.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+        audioRouter = AudioRouter(applicationContext)
     }
 
     override fun onDetachedFromActivityForConfigChanges() {
@@ -112,6 +109,13 @@ class PluginHandler : MethodCallHandler, ActivityAware, BaseListener {
         if (call.method != "getStats") {
             debug("onMethodCall => received ${call.method}")
         }
+
+        // A call arriving here is what identifies the engine that is actually using the
+        // plugin, and so where the process-wide statics should point — see
+        // TwilioProgrammableVideoPlugin.pluginHandler. Attaching is not the same thing: a
+        // background engine gets the plugin registered whether its Dart side wants it or
+        // not, which is how it used to take those statics over.
+        TwilioProgrammableVideoPlugin.claimSharedStatics(this)
         when (call.method) {
             "debug" -> debug(call, result)
             "connect" -> connect(call, result)
@@ -363,8 +367,6 @@ class PluginHandler : MethodCallHandler, ActivityAware, BaseListener {
         audioSettings.speakerEnabled = speakerphoneEnabled
         audioSettings.bluetoothPreferred = bluetoothPreferred
 
-        TwilioProgrammableVideoPlugin.audioNotificationListener.listenForRouteChanges(applicationContext)
-
         applyAudioSettings()
 
         result.success(null)
@@ -380,75 +382,69 @@ class PluginHandler : MethodCallHandler, ActivityAware, BaseListener {
     }
 
     private fun disableAudioSettings(call: MethodCall, result: MethodChannel.Result) {
-        TwilioProgrammableVideoPlugin.audioNotificationListener.stopListeningForRouteChanges(applicationContext)
+        // Stopping the router releases the route as well as the device scanners, which is
+        // what lets another app's music resume: below API 31 it stops SCO, above it
+        // clears the communication device.
+        //
+        // Unconditional, including mid-call. Releasing the route is the point of this
+        // call, not a side effect: without it a headset stays in call mode and another
+        // app's audio cannot resume.
+        //
+        // Deferring the release until the Room ended was tried and is worse. It needs a
+        // pending-teardown flag, and every path that ends a call without an app-initiated
+        // `disconnect` — a Room the server ends, which leaves `isConnected()` true
+        // because `RoomListener.onDisconnected` does not clear the Room — then strands
+        // that flag, so the teardown the app asked for never happens and fires later in an
+        // unrelated call instead. The case it protected is narrow either way: an app that
+        // calls this mid-call and keeps talking. This plugin's own example calls it on the
+        // line above `Room.disconnect()`, where the route is about to go anyway.
+        audioRouter.stop()
         audioSettings.reset()
         result.success(null)
     }
 
+    /**
+     * Whether the plugin is currently driving the audio system, and so whether the route
+     * needs to stay engaged.
+     */
+    private fun isUsingAudioSystem(): Boolean {
+        return TwilioProgrammableVideoPlugin.isConnected() ||
+                TwilioProgrammableVideoPlugin.audioNotificationListener.anyAudioPlayersActive()
+    }
+
+    /**
+     * Hands the current settings to the router, and engages the route if the plugin is
+     * using the audio system.
+     *
+     * Only ever escalates. An activated route holds the Bluetooth link the way audio
+     * focus holds playback, so it is engaged lazily — but releasing it is a teardown
+     * decision that belongs to `disconnect`, `disableAudioSettings` and the audio
+     * player listener. Deciding it here as well would drop the route whenever the app
+     * calls `setAudioSettings` during the window between `connect` and the Room
+     * actually being assigned, where `isConnected()` is still false.
+     */
     internal fun applyAudioSettings() {
         debug("applyAudioSettings")
-        setSpeakerPhoneOnInternal()
+        audioRouter.applySettings(audioSettings)
 
-        if (!audioSettings.speakerEnabled) {
-            applyBluetoothSettings()
-        }
-    }
-
-    // BluetoothSco being enabled functions similarly to holding Audio Focus when it comes
-    // to external apps audio, if that external app would normally be using the connected
-    // bluetooth device. That is, it prevents the external app from continuing or resuming playback.
-    //
-    // Given this, we only want to turn BluetoothSco on when we are actually using the audio system.
-    internal fun applyBluetoothSettings() {
-        val isConnected = TwilioProgrammableVideoPlugin.isConnected()
-        val anyPlaying = TwilioProgrammableVideoPlugin.audioNotificationListener.anyAudioPlayersActive()
-        debug("applyBluetoothSettings BEGIN =>\n" +
-                "\ton: ${audioSettings.bluetoothPreferred}\n" +
-                "\tscoOn: ${audioManager.isBluetoothScoOn}\n" +
-                "\tconnected: $isConnected\n" +
-                "\tanyPlaying: $anyPlaying")
-        if (isConnected || anyPlaying) {
-            Handler(Looper.getMainLooper()).postDelayed({
-                // This runs as a bare Runnable on the main looper: anything thrown here
-                // has no caller to catch it and goes straight to the uncaught handler.
-                // setBluetoothSco guards itself, but the deprecated isBluetoothScoOn
-                // setter on the next line hits the same audio service in the same state,
-                // so guarding only the first call would still let the process die.
-                try {
-                    setBluetoothSco(audioSettings.bluetoothPreferred)
-                    audioManager.isBluetoothScoOn = audioSettings.bluetoothPreferred
-                } catch (e: RuntimeException) {
-                    debug("applyBluetoothSettings => failed to apply SCO routing: ${e.message}")
-                }
-                debug("applyBluetoothSettings END => on: ${audioSettings.bluetoothPreferred} scoOn: ${audioManager.isBluetoothScoOn}")
-            }, 1000)
-        }
-    }
-
-    internal fun setBluetoothSco(on: Boolean) {
-        // start/stopBluetoothSco are deprecated from API 31 and OEM audio stacks are
-        // known to reject them with IllegalStateException or SecurityException. One of
-        // the three call sites is inside AudioNotificationListener's BroadcastReceiver,
-        // where an uncaught throw takes the app down, and failing to switch SCO must not
-        // end the call — but only those two types are swallowed. A broader catch would
-        // also hide genuine defects here, and the `disconnect` call site cannot report
-        // the failure to Dart anyway: the Room really did disconnect, so answering with
-        // an error would be a lie. The cost of a swallowed failure is that SCO may stay
-        // held, keeping a headset in call mode until Bluetooth is toggled.
-        try {
-            if (on) {
-                audioManager.startBluetoothSco()
-                debug("startBluetoothSco => on: $on\n" +
-                        "\tbluetoothPreferred: ${audioSettings.bluetoothPreferred}\n" +
-                        "\tscoOn: ${audioManager.isBluetoothScoOn}")
-            } else {
-                audioManager.stopBluetoothSco()
-                debug("stopBluetoothSco => on: $on\n\tbluetoothPreferred: ${audioSettings.bluetoothPreferred}\n\tscoOn: ${audioManager.isBluetoothScoOn}")
-            }
-        } catch (e: IllegalStateException) {
-            debug("setBluetoothSco => rejected for on: $on: ${e.message}")
-        } catch (e: SecurityException) {
-            debug("setBluetoothSco => not permitted for on: $on: ${e.message}")
+        if (isUsingAudioSystem()) {
+            audioRouter.activate()
+        } else {
+            // Recorded, not routed — and said out loud, because the two method channel calls
+            // that reach here, `setAudioSettings` and `setSpeakerphoneOn`, answer success
+            // either way. Without this line "the toggle did nothing" is indistinguishable
+            // from a routing call the audio stack rejected.
+            //
+            // Not a gap to close by activating anyway: an activated route holds the
+            // Bluetooth link the way audio focus holds playback, so engaging it here would
+            // stop another app's music from resuming for as long as the app leaves settings
+            // applied. The settings are re-applied from `connect` and from the audio player
+            // listener, so nothing is lost by waiting. iOS reaches the same place from the
+            // other direction — `setSpeakerphoneOn` there sets the AVAudioSession category
+            // and the route follows only once the Room's audio device is running.
+            debug("applyAudioSettings => stored but not routed: no Room is connected and no " +
+                    "audio player registered with the plugin is active. The settings apply " +
+                    "when one of those starts.")
         }
     }
 
@@ -457,79 +453,33 @@ class PluginHandler : MethodCallHandler, ActivityAware, BaseListener {
                 ?: return result.error("MISSING_PARAMS", missingParameterMessage("on"), null)
 
         audioSettings.speakerEnabled = on
-        setSpeakerPhoneOnInternal()
+        applyAudioSettings()
 
-        if (!audioSettings.speakerEnabled && audioSettings.bluetoothPreferred) {
-            applyBluetoothSettings()
-        }
         return result.success(audioSettings.speakerEnabled)
     }
 
     /**
-     * BLUETOOTH_CONNECT is required from API 31 to read the Bluetooth headset state.
-     * Below that no runtime permission applies. Checked up front so the common
-     * ungranted case does not raise and log a SecurityException on every call.
-     */
-    internal fun hasBluetoothConnectPermission(): Boolean {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return true
-        return applicationContext.checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) ==
-                PackageManager.PERMISSION_GRANTED
-    }
-
-    /**
-     * The headset profile state, reported as STATE_DISCONNECTED whenever it cannot be
-     * read — no BLUETOOTH_CONNECT grant, no Bluetooth adapter, or a SecurityException
-     * anyway.
+     * Reports whether the speaker is the device the current settings resolve to.
      *
-     * Reporting "unknown" separately and then declining to touch the route was tried
-     * and is wrong: `bluetoothPreferred` defaults to true and this plugin only
-     * declares BLUETOOTH_CONNECT rather than requesting it, so on API 31+ the state is
-     * usually unreadable — which turned every `setSpeakerphoneOn` into a silent no-op
-     * that still reported success. An explicit request from the app has to win. There
-     * is no permission-free way to detect a connected headset, so the cost of being
-     * wrong here is a suboptimal route in the narrow case where the app never asked
-     * for the permission but a headset is connected; the alternative is a speaker
-     * button that does nothing.
+     * Read from the router's selection rather than `AudioManager.isSpeakerphoneOn`,
+     * because on API 31+ the route is set with `setCommunicationDevice` and that flag no
+     * longer decides it. The AudioManager read stays as the fallback for before the
+     * router has picked a device, which is what an app that never called
+     * `setAudioSettings` used to get.
+     *
+     * Deliberately the *selection* and not the live route. A selection exists for as long
+     * as device discovery is running, so this survives `disconnect` and still answers
+     * "the speaker is where audio would go" — which is what an app rendering a speaker
+     * toggle wants, since asking again after a call should not flip the button off. It
+     * does mean this is not a reading of the hardware state: between calls the route is
+     * released and playback follows the system default, whatever this reports.
+     *
+     * `disableAudioSettings` ends discovery, and from there this falls back to the
+     * AudioManager flag until the next `setAudioSettings` — the app has said it no longer
+     * wants the plugin choosing an output, so there is no selection left to report.
      */
-    private fun bluetoothHeadsetConnectionState(): Int {
-        if (!hasBluetoothConnectPermission()) {
-            debug("bluetoothHeadsetConnectionState => BLUETOOTH_CONNECT not granted, assuming disconnected")
-            return BluetoothProfile.STATE_DISCONNECTED
-        }
-        return try {
-            BluetoothAdapter.getDefaultAdapter()?.getProfileConnectionState(BluetoothProfile.HEADSET)
-                    ?: BluetoothProfile.STATE_DISCONNECTED
-        } catch (e: SecurityException) {
-            debug("bluetoothHeadsetConnectionState => SecurityException: ${e.message}")
-            BluetoothProfile.STATE_DISCONNECTED
-        }
-    }
-
-    private fun setSpeakerPhoneOnInternal() {
-        val bluetoothProfileConnectionState = bluetoothHeadsetConnectionState()
-        debug("setSpeakerPhoneOnInternal => on: ${audioSettings.speakerEnabled}\n bluetoothEnable: ${audioSettings.bluetoothPreferred}\n bluetoothScoOn: ${audioManager.isBluetoothScoOn}\n bluetoothProfileConnectionState: $bluetoothProfileConnectionState")
-
-        // Even if already enabled, setting `audioManager.isSpeakerphoneOn` to true
-        // will reroute audio to the speaker. If using a Bluetooth headset, this will cause audio to
-        // momentarily be routed to the device bottom speaker.
-        //
-        // It has been observed when disconnecting a bluetooth headset that sometimes
-        // the bluetoothProfileConnectionState will still be BluetoothProfile.STATE_CONNECTED
-        // resulting in an edge case where audio will be routed via the receiver rather than the
-        // bottom speaker.
-        if (!audioSettings.bluetoothPreferred ||
-                bluetoothProfileConnectionState != BluetoothProfile.STATE_CONNECTED) {
-            applySpeakerPhoneSettings()
-        }
-    }
-
-    internal fun applySpeakerPhoneSettings() {
-        debug("applySpeakerPhoneSettings => enabled: ${audioSettings.speakerEnabled}")
-        audioManager.isSpeakerphoneOn = audioSettings.speakerEnabled
-    }
-
     private fun getSpeakerphoneOn(result: MethodChannel.Result) {
-        return result.success(audioManager.isSpeakerphoneOn)
+        return result.success(audioRouter.isSpeakerphoneSelected ?: audioManager.isSpeakerphoneOn)
     }
 
     /*
@@ -588,7 +538,10 @@ class PluginHandler : MethodCallHandler, ActivityAware, BaseListener {
         TwilioProgrammableVideoPlugin.roomListenerOrNull?.room = null
         debug("disconnect => audioPlayers active: ${TwilioProgrammableVideoPlugin.audioNotificationListener.anyAudioPlayersActive()}")
         if (!TwilioProgrammableVideoPlugin.audioNotificationListener.anyAudioPlayersActive()) {
-            setBluetoothSco(false)
+            // Order matters and both restore an audio mode: the router puts back what it
+            // captured on activate, then setAudioFocus puts back what the plugin captured
+            // before the call. Deactivating second would leave the router's value on top.
+            audioRouter.deactivate()
             setAudioFocus(false)
         }
         result.success(true)
@@ -767,11 +720,33 @@ class PluginHandler : MethodCallHandler, ActivityAware, BaseListener {
             optionsBuilder.enableAutomaticSubscription(if (optionsObj["enableAutomaticSubscription"] != null) optionsObj["enableAutomaticSubscription"] as Boolean else true)
 
             applyAudioSettings()
+            // `isConnected()` is still false here — the RoomListener is assigned on the
+            // next line and its Room only later, when the room event channel is listened
+            // to — so applyAudioSettings cannot tell that this call is about to use the
+            // audio system. Audio focus was already taken above, which settles it.
+            audioRouter.activate()
 
             val roomId = 1 // Future preparation, for when we might want to support multiple rooms.
             TwilioProgrammableVideoPlugin.roomListener = RoomListener(roomId, optionsBuilder.build())
             result.success(roomId)
         } catch (e: Exception) {
+            // Both the route and audio focus were taken above, on the way to a Room that
+            // now does not exist, and nothing else releases them: `isConnected()` stays
+            // false so neither `applyAudioSettings` nor the audio player listener will,
+            // and a Dart connect-error handler has no reason to call
+            // `disableAudioSettings`. Left engaged, the route keeps a headset in call mode
+            // and stops another app's music from resuming for the rest of the session.
+            //
+            // Skipped whenever anything else is still using the audio system — a ringtone
+            // that is still playing, or an earlier Room this failed call was not replacing.
+            // `connect` on top of a live Room is reachable through app reconnect logic, and
+            // tearing the route down there would send the call that is still running to the
+            // wrong output.
+            if (!isUsingAudioSystem()) {
+                debug("connect => failed, releasing the route and audio focus")
+                audioRouter.deactivate()
+                setAudioFocus(false)
+            }
             result.error("INIT_ERROR", e.toString(), e)
         }
     }
@@ -798,14 +773,21 @@ class PluginHandler : MethodCallHandler, ActivityAware, BaseListener {
 
     internal fun setAudioFocus(focus: Boolean): Boolean {
         if (focus) {
+            // Snapshotted on the first take only, all three together. A second take before
+            // the matching release is reachable — `connect` on top of a ringtone the audio
+            // player is still playing, which took focus itself — and by then these read
+            // back the values the first take installed: an unmuted microphone and
+            // STREAM_VOICE_CALL. Re-reading them would discard what the app had set and
+            // leave the microphone unmuted for good once the call ended. The mode was
+            // always guarded this way; the other two were not.
             if (previousAudioMode == null) {
                 previousAudioMode = audioManager.mode
+                previousMicrophoneMute = audioManager.isMicrophoneMute
+                val volumeControlStream = this.activity?.volumeControlStream
+                if (volumeControlStream != null) {
+                    previousVolumeControlStream = volumeControlStream
+                }
             }
-            val volumeControlStream = this.activity?.volumeControlStream
-            if (volumeControlStream != null) {
-                previousVolumeControlStream = volumeControlStream
-            }
-            previousMicrophoneMute = audioManager.isMicrophoneMute
             var requestResult: Int
 
             // Request audio focus
@@ -866,7 +848,15 @@ class PluginHandler : MethodCallHandler, ActivityAware, BaseListener {
             } else if (audioFocusRequest != null) {
                 audioManager.abandonAudioFocusRequest(audioFocusRequest!!)
             }
-            audioManager.isSpeakerphoneOn = false
+            // No `isSpeakerphoneOn = false` here any more. It existed to undo this
+            // class's own speakerphone write, and the router now owns that flag: every
+            // caller deactivates it immediately before this, which restores the value
+            // from before the call, and forcing it off here would overwrite that.
+            //
+            // The cost is that this is no longer a backstop. If the deactivate was
+            // rejected by the audio stack — AudioRouter logs it and carries on rather
+            // than failing the disconnect — the speakerphone flag keeps whatever the
+            // call left it at.
             if (previousAudioMode != null) {
                 audioManager.mode = previousAudioMode!!
                 previousAudioMode = null

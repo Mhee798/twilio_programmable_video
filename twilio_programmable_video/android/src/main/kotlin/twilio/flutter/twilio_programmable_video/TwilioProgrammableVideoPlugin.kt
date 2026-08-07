@@ -29,12 +29,50 @@ class TwilioProgrammableVideoPlugin : FlutterPlugin {
     private lateinit var remoteDataTrackChannel: EventChannel
     private lateinit var audioNotificationChannel: EventChannel
 
+    /**
+     * The handler this engine's own channels talk to.
+     *
+     * Distinct from the shared [pluginHandler], which may belong to a different engine —
+     * see its documentation.
+     */
+    private lateinit var enginePluginHandler: PluginHandler
+
     companion object {
         @JvmStatic
         val LOG_TAG = "Twilio_PVideo"
 
         val localVideoTracks = mutableMapOf<String, LocalVideoTrack>()
+
+        /**
+         * The handler the process-wide statics reach the plugin through: camera events
+         * from [VideoCapturerHandler], and the audio player listener handed to other
+         * plugins by [getAudioPlayerEventListener].
+         *
+         * Owned by the engine that last made a method channel call — the one actually
+         * using the plugin — rather than the last one to *attach*. A second FlutterEngine
+         * in the same process (a `FirebaseMessaging` background handler, a CallKit
+         * isolate, an add-to-app host) has every plugin registered whether its Dart side
+         * wants them or not, and assigning this on attach handed the statics to it:
+         * camera events then went to a handler whose event sink nothing had listened to,
+         * so they were dropped silently, and stayed dropped, because
+         * `onDetachedFromEngine` never gave the pointer back.
+         *
+         * Ownership by attach order does not work either, in either direction. Newest-wins
+         * is the bug above; oldest-wins strands the pointer on the background engine when
+         * an incoming call wakes a terminated app, which is the order that matters most —
+         * the background engine attaches first and the UI engine second. What the two
+         * consumers want is the engine driving the call, and a method channel call is the
+         * only signal of that the plugin gets.
+         *
+         * Each engine keeps its own handler for its own channels; only this pointer is
+         * shared. [claimSharedStatics] moves it, and a detaching owner hands it to
+         * whichever engine is still attached.
+         */
         lateinit var pluginHandler: PluginHandler
+            private set
+
+        /** Attached plugin instances in attach order; the first one owns [pluginHandler]. */
+        private val attachedPlugins = mutableListOf<TwilioProgrammableVideoPlugin>()
         lateinit var cameraEnumerator: CameraEnumerator
         lateinit var roomListener: RoomListener
 
@@ -105,6 +143,34 @@ class TwilioProgrammableVideoPlugin : FlutterPlugin {
         @JvmStatic
         internal val roomListenerOrNull: RoomListener?
             get() = if (::roomListener.isInitialized) roomListener else null
+
+        /**
+         * Hands [pluginHandler] to the engine [handler] belongs to.
+         *
+         * Called from every method channel call rather than from attach; see
+         * [pluginHandler] for why that is the signal.
+         */
+        internal fun claimSharedStatics(handler: PluginHandler) {
+            if (::pluginHandler.isInitialized && pluginHandler === handler) return
+            pluginHandler = handler
+            debug("pluginHandler => claimed by the engine now driving the plugin")
+        }
+
+        /**
+         * Gives [pluginHandler] a value when it has none, and takes it off an engine that
+         * is detaching, so it never points at a handler whose engine is gone while another
+         * is still attached. Which of several attached engines it lands on does not matter:
+         * the next method channel call settles it.
+         */
+        private fun repointPluginHandler() {
+            attachedPlugins.firstOrNull()?.let { pluginHandler = it.enginePluginHandler }
+        }
+
+        private fun ownsSharedStatics(plugin: TwilioProgrammableVideoPlugin): Boolean {
+            return ::pluginHandler.isInitialized && pluginHandler === plugin.enginePluginHandler
+        }
+
+        private fun isPluginHandlerInitialized(): Boolean = ::pluginHandler.isInitialized
     }
 
     override fun onAttachedToEngine(@NonNull binding: FlutterPlugin.FlutterPluginBinding) {
@@ -116,7 +182,18 @@ class TwilioProgrammableVideoPlugin : FlutterPlugin {
         messenger: BinaryMessenger,
         platformViewRegistry: PlatformViewRegistry
     ) {
-        pluginHandler = PluginHandler(applicationContext)
+        enginePluginHandler = PluginHandler(applicationContext)
+        attachedPlugins.add(this)
+        // Only to give the field a value at all. Attaching does not claim it — that is
+        // what [claimSharedStatics] is for.
+        if (!isPluginHandlerInitialized()) {
+            repointPluginHandler()
+        }
+        // Logged because a second engine is otherwise invisible from outside, and it is
+        // what decides where the shared statics point; a field report of "camera events
+        // stopped" is unreadable without knowing an engine attached.
+        debug("onAttachedToEngine => engines attached: ${attachedPlugins.size}")
+
         camera2IsSupported = Camera2Enumerator.isSupported(applicationContext)
         cameraEnumerator = if (camera2IsSupported)
             Camera2Enumerator(applicationContext)
@@ -124,18 +201,18 @@ class TwilioProgrammableVideoPlugin : FlutterPlugin {
             Camera1Enumerator()
 
         methodChannel = MethodChannel(messenger, "twilio_programmable_video")
-        methodChannel.setMethodCallHandler(pluginHandler)
+        methodChannel.setMethodCallHandler(enginePluginHandler)
 
         cameraChannel = EventChannel(messenger, "twilio_programmable_video/camera")
         cameraChannel.setStreamHandler(object : EventChannel.StreamHandler {
             override fun onListen(arguments: Any?, events: EventChannel.EventSink) {
                 debug("Camera eventChannel attached")
-                pluginHandler.events = events
+                enginePluginHandler.events = events
             }
 
             override fun onCancel(arguments: Any?) {
                 debug("Camera eventChannel detached")
-                pluginHandler.events = null
+                enginePluginHandler.events = null
             }
         })
 
@@ -218,7 +295,7 @@ class TwilioProgrammableVideoPlugin : FlutterPlugin {
             }
         })
 
-        val pvf = ParticipantViewFactory(StandardMessageCodec.INSTANCE, pluginHandler)
+        val pvf = ParticipantViewFactory(StandardMessageCodec.INSTANCE, enginePluginHandler)
         platformViewRegistry.registerViewFactory("twilio_programmable_video/views", pvf)
     }
 
@@ -229,5 +306,38 @@ class TwilioProgrammableVideoPlugin : FlutterPlugin {
         loggingChannel.setStreamHandler(null)
         remoteDataTrackChannel.setStreamHandler(null)
         localParticipantChannel.setStreamHandler(null)
+        cameraChannel.setStreamHandler(null)
+        audioNotificationChannel.setStreamHandler(null)
+
+        val wasSharedStaticsOwner = ownsSharedStatics(this)
+
+        // The sink belongs to the isolate that is going away, and the release below
+        // announces through it. `setStreamHandler(null)` does not reach the old handler's
+        // onCancel, so this is the only thing that clears it.
+        if (wasSharedStaticsOwner) {
+            audioNotificationListener.events = null
+        }
+
+        // The route this engine engaged outlives it otherwise: nothing else stops the
+        // router, so on API 31+ the communication device stays claimed and below that SCO
+        // stays held, keeping a headset in call mode and stopping another app's audio from
+        // resuming for the rest of the process. Device discovery leaks the same way — only
+        // `disableAudioSettings` ever called stop(), and an app that never calls it (this
+        // plugin's own README does not require it) left the scanners registered for good.
+        //
+        // Guarded on `isRunning` rather than calling stop() unconditionally: stop()
+        // announces the known devices as unavailable, and that list lives on the shared
+        // `audioNotificationListener`. A background engine detaching would otherwise
+        // withdraw the headsets a call running on another engine is still using.
+        if (enginePluginHandler.audioRouter.isRunning) {
+            enginePluginHandler.audioRouter.stop()
+        }
+
+        attachedPlugins.remove(this)
+        if (wasSharedStaticsOwner) {
+            repointPluginHandler()
+        }
+        debug("onDetachedFromEngine => owned the shared statics: $wasSharedStaticsOwner, " +
+                "engines still attached: ${attachedPlugins.size}")
     }
 }

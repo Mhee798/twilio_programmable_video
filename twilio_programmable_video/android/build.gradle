@@ -22,6 +22,13 @@ rootProject.allprojects {
     repositories {
         google()
         mavenCentral()
+        // audioswitch below is resolved from JitPack. Added to every project rather
+        // than just this one because Gradle resolves a module's dependencies against
+        // the repositories of the project that consumes it; declaring it only here
+        // would make the app build fail with "Could not find
+        // com.github.davidliu:audioswitch". flutter_webrtc declares it the same way,
+        // so an app using both ends up with one identical entry, not a conflict.
+        maven { url 'https://jitpack.io' }
     }
 }
 
@@ -44,6 +51,7 @@ android {
 
     sourceSets {
         main.java.srcDirs += 'src/main/kotlin'
+        test.java.srcDirs += 'src/test/kotlin'
     }
     defaultConfig {
         minSdk 21
@@ -70,6 +78,15 @@ android {
     buildFeatures {
         viewBinding true
     }
+
+    testOptions {
+        // The unit tests only exercise pure Kotlin, but loading a class whose
+        // signatures mention android.* still pulls in the stub android.jar, whose
+        // every method throws by default. Returning defaults instead keeps an
+        // accidental stub call from reading as a test failure with an unrelated
+        // message.
+        unitTests.returnDefaultValues = true
+    }
 }
 
 dependencies {
@@ -79,4 +96,22 @@ dependencies {
     // kotlin.stdlib.default.dependency=false.
     implementation "org.jetbrains.kotlin:kotlin-stdlib:$kotlin_version"
     implementation "com.twilio:video-android:$twilio_video_version"
+
+    // Audio device discovery and routing — see AudioRouter.kt.
+    //
+    // This is davidliu's fork rather than com.twilio:audioswitch, pinned to the same
+    // commit flutter_webrtc ships, because only the fork has CommDeviceAudioSwitch:
+    // routing through AudioManager.setCommunicationDevice, which is the only thing
+    // that actually moves playout on API 31+. The last upstream release (1.2.5) has
+    // no such class — it still toggles isSpeakerphoneOn and startBluetoothSco, which
+    // is exactly the approach this plugin is moving away from.
+    //
+    // Pinned to a commit hash because JitPack has no release tags for the fork. That
+    // makes the build reproducible but leaves availability in JitPack's hands; the
+    // artifact is cached in ~/.gradle once resolved.
+    implementation 'com.github.davidliu:audioswitch:039a35aefab7747c557242fa216c9ea11743b604'
+
+    // Only for the JVM unit tests under src/test — see AudioRouterTest.kt for how to
+    // run them (the plugin has no Gradle wrapper of its own).
+    testImplementation 'junit:junit:4.13.2'
 }

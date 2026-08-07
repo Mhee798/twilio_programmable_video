@@ -61,19 +61,19 @@ merged manifest whether or not you use Bluetooth routing. If you do not want the
 
 On Android 12 (API 31) and above, `BLUETOOTH_CONNECT` is a runtime permission and **the plugin never
 prompts for it** — `requestPermissionForCameraAndMicrophone()` covers only the camera and the
-microphone. Request it yourself if you want audio routed to a Bluetooth headset. The plugin uses
-`permission_handler` internally but does not re-export it, so add it to your own `pubspec.yaml`:
+microphone.
+
+Audio routing does not need it. The plugin discovers audio devices through `AudioManager`, which
+reports a connected Bluetooth headset without any Bluetooth permission, so Bluetooth routing works
+whether or not the grant is in place. Request it only if your own code reads the Bluetooth state.
+The plugin uses `permission_handler` internally but does not re-export it, so add it to your own
+`pubspec.yaml` if you do:
 
 ```dart
 import 'package:permission_handler/permission_handler.dart';
 
 await Permission.bluetoothConnect.request();
 ```
-
-Without the grant the plugin reports "no headset connected" instead of failing: speaker and receiver
-routing keep working, and an explicit `setAudioSettings`/`setSpeakerphoneOn` request is still
-honoured. Only Bluetooth routing is unavailable. If the user grants it during a call, the plugin
-picks it up on the next `setAudioSettings` call rather than immediately.
 
 ##### Proguard
 
@@ -576,6 +576,14 @@ await TwilioProgrammableVideo.setAudioSettings(speakerphoneEnabled: true, blueto
 
 **Note:**
 
+> On Android these two flags become one device-priority order, and every output is ranked under every combination — nothing is left out. `speakerphoneEnabled: true` outranks a *wired* headset, so a speaker toggle still works with earbuds plugged in; `bluetoothPreferred: true` outranks the speaker, which is what makes "Bluetooth if available, otherwise the speaker" work. With `bluetoothPreferred: false` a Bluetooth headset is ranked last rather than excluded, so it is still used when it is the only device connected.
+
+**Note:**
+
+> These settings move audio only while the plugin is driving the audio system — from `Room.onConnected` until disconnect, and while an audio player registered with the plugin is playing. Called before `connect` or between calls, `setAudioSettings` and `setSpeakerphoneOn` record the preference for the next such window and answer success; they do not reroute audio the app is playing through some other plugin. On Android the route is engaged lazily for a reason: an activated route holds the Bluetooth link the way audio focus holds playback, so holding it between calls would stop another app's music from resuming.
+
+**Note:**
+
 > Once `setAudioSettings` has been called, the Android and iOS implementations will listen for route changes, and work to ensure that the applied audio settings continue to be used. While this is the case, you can listen for such changes using the `TwilioProgrammableVideo` class.
 
 ```dart
@@ -584,7 +592,7 @@ TwilioProgrammableVideo.onAudioNotification.listen((event) {
 });
 ```
 
-> To disable audio setting management, and route change observation, call `disableAudioSettings` using the `TwilioProgrammableVideo` class.
+> To disable audio setting management, and route change observation, call `disableAudioSettings` using the `TwilioProgrammableVideo` class. On Android this also releases the audio route, which is what lets another app's audio resume — so calling it while still connected to a `Room` ends Bluetooth or speaker routing for the rest of that call.
 
 ```dart
 await TwilioProgrammableVideo.disableAudioSettings();

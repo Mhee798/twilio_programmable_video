@@ -14,6 +14,10 @@ export 'package:twilio_programmable_video_platform_interface/src/audio_codecs/au
 export 'package:twilio_programmable_video_platform_interface/src/enums/enum_exports.dart';
 export 'package:twilio_programmable_video_platform_interface/src/video_codecs/video_codec.dart';
 export 'package:twilio_programmable_video_platform_interface/src/camera_source.dart';
+// `TwilioProgrammableVideo.onAudioNotification` emits these, so an app cannot use the
+// stream it is handed without them — and adding the platform interface as a direct
+// dependency to name the types is not something a plugin's public API should require.
+export 'package:twilio_programmable_video_platform_interface/src/models/audio_notification_event.dart';
 
 part 'audio_settings.dart';
 part 'audio_track.dart';

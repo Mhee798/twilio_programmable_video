@@ -1,21 +1,23 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
-    <!-- The audio-routing code reads the Bluetooth headset profile state to choose
-         between speaker, receiver and Bluetooth — see
-         PluginHandler.setSpeakerPhoneOnInternal and
-         AudioNotificationListener.listenForRouteChanges. BLUETOOTH_CONNECT is
-         required for that from API 31; BLUETOOTH covers older releases.
+    <!-- Audio routing goes through AudioSwitch — see AudioRouter.kt. From API 23 it
+         discovers devices through AudioManager, which needs neither of these, so on
+         a current Flutter app (minSdk 23 or higher, enforced by Flutter's Gradle
+         plugin) Bluetooth routing now works whether or not BLUETOOTH_CONNECT has
+         been granted. That was not true of the hand-rolled routing this replaced,
+         which read the Bluetooth headset profile state directly.
 
-         Declaring them here means a consuming app does not have to. Both call sites
-         report "no headset connected" when the grant is missing, so an app only needs
-         to *request* BLUETOOTH_CONNECT if it wants Bluetooth routing to work; speaker
-         and receiver routing function without it.
+         They are still declared because the API 21-22 path binds the headset profile
+         proxy, and because removing a permission a consuming app may already rely on
+         this plugin to declare would be a breaking change for that app's manifest.
 
          Deliberately declared with no attributes. Setting android:maxSdkVersion here
          (30 would be the natural value for the legacy permission) makes the manifest
          merger fail the build of any app that declares the same permission with a
          different value — "Attribute uses-permission#...@maxSdkVersion value=(30) ...
          is also present at AndroidManifest.xml value=(29)". With the attribute absent
-         the app's own declaration simply wins, whatever it says. -->
+         the app's own declaration simply wins, whatever it says. An app that wants
+         neither permission in its own manifest can strip them with
+         tools:node="remove". -->
     <uses-permission android:name="android.permission.BLUETOOTH" />
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
 </manifest>

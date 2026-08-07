@@ -2,7 +2,6 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
-import 'package:permission_handler/permission_handler.dart';
 import 'package:twilio_programmable_video/twilio_programmable_video.dart';
 
 /// Runtime smoke test for twilio_programmable_video on a real device or emulator.
@@ -32,10 +31,15 @@ import 'package:twilio_programmable_video/twilio_programmable_video.dart';
 ///     flutter test integration_test/plugin_smoke_test.dart -d <device>
 ///
 /// Running without the grant is worth doing too: every test here must pass in both
-/// states. Note what that does and does not prove — most of these cases pin
-/// `bluetoothPreferred: false`, which makes the routing guard short-circuit before it
-/// ever looks at the Bluetooth state, so only the case that deliberately leaves
-/// `bluetoothPreferred` at its default exercises the permission-dependent branch.
+/// states. On API 23+ that is now a weaker statement than it used to be — audio
+/// routing goes through AudioSwitch, which discovers devices through AudioManager and
+/// never reads the Bluetooth profile state — but the grant still has to not break
+/// anything, and the API 21-22 path does bind the headset profile proxy.
+///
+/// Run it with no headset attached. The routing cases below assert that a
+/// speakerphone request reaches the speaker, and a connected Bluetooth or wired
+/// headset legitimately outranks the speaker, which would fail them for the right
+/// reason. There is no API for the suite to detect that itself and skip.
 ///
 /// NOTE: neither platform can currently host this suite from `example/`.
 /// `example/android` still applies Flutter's Gradle plugin the old imperative way,
@@ -53,7 +57,6 @@ import 'package:twilio_programmable_video/twilio_programmable_video.dart';
 ///     flutter create --platforms=ios itest_host
 ///     # pubspec.yaml: twilio_programmable_video: {path: <repo>/twilio_programmable_video}
 ///     #              dev_dependencies: integration_test: {sdk: flutter}
-///     #                                permission_handler: ^12.0.1
 ///     cp <repo>/twilio_programmable_video/example/integration_test/*.dart itest_host/integration_test/
 ///     cd itest_host && flutter test integration_test/plugin_smoke_test.dart -d <device>
 ///
@@ -63,12 +66,11 @@ import 'package:twilio_programmable_video/twilio_programmable_video.dart';
 /// rather than that the SDK loaded; and `deviceHasReceiver` keys off
 /// `userInterfaceIdiom`, so an iPad target returns false by design.
 ///
-/// The two speakerphone cases skip themselves for two separate reasons, in this
-/// order: not Android at all — `bluetoothPreferred` and the headset-state guard they
-/// pin down are Android behaviour (PluginHandler.setSpeakerPhoneOnInternal) and iOS
-/// routes audio through AVAudioSession — or Android with `BLUETOOTH_CONNECT` granted,
-/// which makes the read racy as described above. So on iOS this suite reduces to the
-/// channel round-trips: the two skips are expected there, not a regression.
+/// The speakerphone cases skip themselves on anything but Android: they pin down
+/// `bluetoothPreferred` and the device-priority order it feeds (AudioRouter.kt), and
+/// iOS routes audio through AVAudioSession with no counterpart. So on iOS this suite
+/// reduces to the channel round-trips: those skips are expected there, not a
+/// regression.
 ///
 /// `requestPermissionForCameraAndMicrophone()` is deliberately excluded — it raises
 /// a system dialog and would hang an unattended run.
@@ -76,35 +78,22 @@ void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
 
   setUpAll(() async {
-    await TwilioProgrammableVideo.debug(dart: true, native: true);
+    // `audio: true` as well as `native: true`: the routing decisions this suite
+    // asserts on are logged through the audio channel (AudioRouter, AudioSwitch), and
+    // without it a failure here says only which method channel call was made, not
+    // which device the router picked or why.
+    await TwilioProgrammableVideo.debug(dart: true, native: true, audio: true);
   });
-
-  /// True when the plugin can read the Bluetooth headset state.
-  ///
-  /// This decides whether the speakerphone assertions below are deterministic. With
-  /// the grant in place the plugin binds the headset profile proxy, and both
-  /// `AudioNotificationListener.onServiceConnected` and its BroadcastReceiver call
-  /// `applyAudioSettings()` asynchronously — which rewrites `isSpeakerphoneOn` — while
-  /// `applyBluetoothSettings()` posts another write 1 s later. Reading back
-  /// `getSpeakerphoneOn()` right after a set is therefore a race. Without the grant the
-  /// proxy is never bound, none of that fires, and the read is stable.
-  ///
-  /// `.status` queries without prompting, so it is safe in an unattended run.
-  ///
-  /// Android-only: the callers guard on the platform first, because "the state is
-  /// readable" and "this platform has no such state" are different reasons to skip
-  /// and want different messages.
-  Future<bool> canReadHeadsetState() async => (await Permission.bluetoothConnect.status).isGranted;
 
   /// Skips the calling test on anything but Android, with a reason that says why.
   ///
-  /// The speakerphone cases below pin down `PluginHandler.setSpeakerPhoneOnInternal`,
-  /// which is Android's own routing guard; iOS has no counterpart because it routes
-  /// through `AVAudioSession`.
+  /// The speakerphone cases below pin down the device-priority order AudioRouter
+  /// builds from `speakerphoneEnabled`/`bluetoothPreferred`; iOS has no counterpart
+  /// because it routes through `AVAudioSession`.
   bool skipUnlessAndroid() {
     if (Platform.isAndroid) return false;
-    markTestSkipped('speakerphone routing is Android behaviour (PluginHandler.'
-        'setSpeakerPhoneOnInternal); iOS routes through AVAudioSession');
+    markTestSkipped('speakerphone routing is Android behaviour (AudioRouter.'
+        'preferredDeviceListFor); iOS routes through AVAudioSession');
     return true;
   }
 
@@ -116,16 +105,7 @@ void main() {
 
     testWidgets('setSpeakerphoneOn state survives the round trip to native', (_) async {
       if (skipUnlessAndroid()) return;
-      if (await canReadHeadsetState()) {
-        markTestSkipped('asynchronous re-routing makes isSpeakerphoneOn racy once the '
-            'headset profile proxy is bound; run without BLUETOOTH_CONNECT to assert it');
-        return;
-      }
 
-      // bluetoothPreferred off so this case does not also depend on the headset state:
-      // PluginHandler.setSpeakerPhoneOnInternal skips applying the speakerphone setting
-      // while a headset is connected and Bluetooth is preferred, and getSpeakerphoneOn
-      // reports the real AudioManager state rather than the requested one.
       await TwilioProgrammableVideo.setAudioSettings(
         speakerphoneEnabled: true,
         bluetoothPreferred: false,
@@ -139,34 +119,28 @@ void main() {
       await TwilioProgrammableVideo.setSpeakerphoneOn(true);
       expect(await TwilioProgrammableVideo.getSpeakerphoneOn(), isTrue);
 
-      await TwilioProgrammableVideo.setSpeakerphoneOn(false);
-      expect(await TwilioProgrammableVideo.getSpeakerphoneOn(), isFalse);
+      // Speaker off means the earpiece, so this half only says anything on a device
+      // that has one. A tablet without a receiver stays on the speaker, correctly.
+      if (await TwilioProgrammableVideo.deviceHasReceiver()) {
+        await TwilioProgrammableVideo.setSpeakerphoneOn(false);
+        expect(await TwilioProgrammableVideo.getSpeakerphoneOn(), isFalse);
+      }
     });
 
-    // The test above pins bluetoothPreferred to false, which short-circuits
-    // PluginHandler.setSpeakerPhoneOnInternal through `!audioSettings.bluetoothPreferred`
-    // before the Bluetooth headset state is ever consulted — so on its own it cannot
-    // tell a working routing guard from a broken one. This case leaves
-    // bluetoothPreferred at its default of true so the guard has to actually resolve
-    // the headset state.
+    // The case above pins bluetoothPreferred to false, so it cannot tell whether
+    // Bluetooth is being weighed at all. This one leaves it at its default of true,
+    // which is the combination every real caller passes and the one the old
+    // implementation got wrong: it read `speakerphoneEnabled: true` as "speaker, full
+    // stop" and never reached the Bluetooth branch, so a paired headset stayed silent.
     //
-    // Without BLUETOOTH_CONNECT that state is unreadable, and the plugin treats
-    // unreadable as "no headset" precisely so an explicit request still wins. An
-    // earlier revision returned "unknown" here and declined to touch the route, which
-    // turned every speakerphone request into a silent no-op that still reported
-    // success. If that regresses, this fails.
-    //
-    // Only assertable without the grant, and that is exactly the regime the fix is
-    // about: with the grant the headset state is readable, so declining to switch can
-    // be the correct answer, and the asynchronous re-routing described above makes the
-    // read racy anyway.
+    // With no headset attached — a documented precondition of this suite — the two
+    // combinations must agree, because the only difference between them is a
+    // preference for a device that is not there. A regression that reintroduces
+    // "speaker wins outright" passes this; a regression that inverts it and forces
+    // Bluetooth ahead of an explicit speaker request fails it, and so does one that
+    // makes the whole speakerphone request a silent no-op.
     testWidgets('speakerphone still applies with bluetoothPreferred left at its default', (_) async {
       if (skipUnlessAndroid()) return;
-      if (await canReadHeadsetState()) {
-        markTestSkipped('this pins the unreadable-headset-state path; '
-            'run without BLUETOOTH_CONNECT to exercise it');
-        return;
-      }
 
       await TwilioProgrammableVideo.setAudioSettings(
         speakerphoneEnabled: true,
@@ -174,12 +148,47 @@ void main() {
       );
       addTearDown(TwilioProgrammableVideo.disableAudioSettings);
 
-      await TwilioProgrammableVideo.setSpeakerphoneOn(true);
       expect(
         await TwilioProgrammableVideo.getSpeakerphoneOn(),
         isTrue,
-        reason: 'speakerphone must be honoured even when the headset state is unknown',
+        reason: 'preferring Bluetooth must not override an explicit speakerphone '
+            'request when no headset is connected',
       );
+
+      await TwilioProgrammableVideo.setSpeakerphoneOn(true);
+      expect(await TwilioProgrammableVideo.getSpeakerphoneOn(), isTrue);
+    });
+
+    // The route is engaged lazily — only while a Room is connected or an audio player
+    // is running — so every one of these calls lands on a router that has been started
+    // but never activated, which is the state the plugin spends most of its life in.
+    //
+    // Cycling it also covers the teardown path that used to leak: `setAudioSettings`
+    // registered a BroadcastReceiver and bound a Bluetooth profile proxy on every call
+    // while `disableAudioSettings` released one of each, so a headset event fired once
+    // per accumulated registration. `disableAudioSettings` before any
+    // `setAudioSettings`, and twice in a row, used to throw.
+    testWidgets('audio settings can be cycled and torn down repeatedly', (_) async {
+      await TwilioProgrammableVideo.disableAudioSettings();
+
+      for (var i = 0; i < 3; i++) {
+        await TwilioProgrammableVideo.setAudioSettings(
+          speakerphoneEnabled: true,
+          bluetoothPreferred: true,
+        );
+        await TwilioProgrammableVideo.setAudioSettings(
+          speakerphoneEnabled: false,
+          bluetoothPreferred: false,
+        );
+        await TwilioProgrammableVideo.disableAudioSettings();
+      }
+
+      await TwilioProgrammableVideo.disableAudioSettings();
+
+      // Reset() on the native side, not the last values written above.
+      final settings = await TwilioProgrammableVideo.getAudioSettings();
+      expect(settings.speakerphoneEnabled, isTrue, reason: 'disableAudioSettings resets speakerphoneEnabled');
+      expect(settings.bluetoothPreferred, isTrue, reason: 'disableAudioSettings resets bluetoothPreferred');
     });
 
     testWidgets('getAudioSettings decodes the native map onto the right fields', (_) async {
