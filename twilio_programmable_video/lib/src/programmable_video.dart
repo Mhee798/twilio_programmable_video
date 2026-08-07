@@ -95,7 +95,11 @@ class TwilioProgrammableVideo {
 
   /// Set the speaker mode on or off.
   ///
-  /// Note: Call this method after the [Room.onConnected] event on iOS. Calling it before will not result in a audio routing change.
+  /// Note: on **both platforms** this only moves audio while the plugin is driving the
+  /// audio system — from the [Room.onConnected] event until disconnect, and while an
+  /// audio player registered with the plugin is playing. Called outside those windows it
+  /// records the preference for the next one rather than rerouting immediately, and the
+  /// returned value is the setting that was stored, not a reading of the live route.
   @Deprecated('Use setAudioSettings for more reliable audio output management.')
   static Future<bool?> setSpeakerphoneOn(bool on) async {
     return await ProgrammableVideoPlatform.instance.setSpeakerphoneOn(on);
@@ -108,6 +112,12 @@ class TwilioProgrammableVideo {
   /// based upon the specified settings.
   ///
   /// Bluetooth takes precedence over speaker phone, speaker phone over receiver.
+  ///
+  /// The settings are stored and stay in force across calls, but they only move audio
+  /// while the plugin is driving the audio system — from the [Room.onConnected] event
+  /// until disconnect, and while an audio player registered with the plugin is playing.
+  /// Calling this before `connect`, or between calls, records the settings for the next
+  /// such window; it does not reroute audio the app is playing through some other plugin.
   static Future setAudioSettings({
     required bool speakerphoneEnabled,
     required bool bluetoothPreferred,

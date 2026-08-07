@@ -1,6 +1,7 @@
 package twilio.flutter.twilio_programmable_video
 
 import android.content.Context
+import android.media.AudioManager
 import android.os.Build
 import android.os.Looper
 import com.twilio.audioswitch.AbstractAudioSwitch
@@ -38,6 +39,21 @@ internal class AudioRouter(private val applicationContext: Context) {
 
     /** The last order applied to the current switch, so a redundant re-apply is skipped. */
     private var appliedOrder: List<Class<out AudioDevice>>? = null
+
+    /**
+     * Whether the current switch has been activated and not since released.
+     *
+     * `AbstractAudioSwitch.state` is not readable from here, and [scheduleBluetoothScoRetry]
+     * must never re-issue `activate()` on a route the plugin has deliberately let go.
+     */
+    private var activated = false
+
+    /** The pending SCO re-ask, if one is scheduled; see [scheduleBluetoothScoRetry]. */
+    private var bluetoothScoRetry: Runnable? = null
+
+    private val audioManager by lazy {
+        applicationContext.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+    }
 
     /**
      * Runs [action] on the main looper, inline if already there.
@@ -137,6 +153,13 @@ internal class AudioRouter(private val applicationContext: Context) {
                 }
                 debug("onAudioDevicesChanged => selected: $selected, available: $devices")
                 TwilioProgrammableVideoPlugin.audioNotificationListener.onAudioDevicesChanged(devices)
+                // A headset connecting mid-call re-routes from inside AudioSwitch without
+                // passing through activate(), so the watchdog has to be armed here too.
+                // Only when idle: a retry's own `activate()` can move the device list, and
+                // restarting the budget on that would keep re-asking for the whole call.
+                if (bluetoothScoRetry == null) {
+                    scheduleBluetoothScoRetry(SCO_RETRY_INTERVAL_MS)
+                }
             }
         }
 
@@ -199,8 +222,81 @@ internal class AudioRouter(private val applicationContext: Context) {
             debug("activate => switch did not start, nothing to route")
             return@onMainThread
         }
-        guarded("activate") { audioSwitch?.activate() }
+        if (guarded("activate") { audioSwitch?.activate() }) {
+            activated = true
+        }
         debug("activate => selected: ${audioSwitch?.selectedAudioDevice}")
+        scheduleBluetoothScoRetry(SCO_RETRY_INTERVAL_MS)
+    }
+
+    /**
+     * Re-asks for the Bluetooth SCO link until it comes up, on the releases that need SCO
+     * to hear a headset at all.
+     *
+     * API 23-30 route Bluetooth by calling `AudioManager.startBluetoothSco()`, and the
+     * link does not always come up on the first ask — the plugin used to defer that call
+     * by a second for exactly this reason. The AudioSwitch variant used on those releases
+     * asks once and never again: its retry loop, `BluetoothScoJob`, is reachable only from
+     * `BluetoothHeadsetManager`, which only [LegacyAudioSwitch] (API < 23) constructs. A
+     * link that fails to come up therefore leaves the headset silent for the whole call
+     * with nothing to recover it.
+     *
+     * `activate()` on an already-activated switch re-runs `onActivate`, which is the ask,
+     * so re-asking needs nothing the library does not already expose. Cadence and giving
+     * up after five seconds match `BluetoothScoJob` itself.
+     *
+     * API 31+ never gets here: [CommDeviceAudioSwitch] routes with
+     * `AudioManager.setCommunicationDevice`, which either succeeds or reports that it did
+     * not, and SCO is not involved.
+     */
+    private fun scheduleBluetoothScoRetry(elapsedMs: Long) {
+        cancelBluetoothScoRetry()
+        // Checked here as well as at fire time so the common release posts nothing at all.
+        if (!bluetoothScoNeedsWatchdog(Build.VERSION.SDK_INT)) return
+        val attempt = object : Runnable {
+            override fun run() {
+                // A retry that was cancelled and one that was superseded both land here if
+                // the post had already been dequeued.
+                if (bluetoothScoRetry !== this) return
+                bluetoothScoRetry = null
+
+                val switch = audioSwitch ?: return
+                if (!activated) return
+                val retry = shouldRetryBluetoothSco(
+                    sdkInt = Build.VERSION.SDK_INT,
+                    selectedIsBluetooth = switch.selectedAudioDevice is AudioDevice.BluetoothHeadset,
+                    scoOn = isBluetoothScoOn(),
+                    elapsedMs = elapsedMs
+                )
+                if (!retry) return
+
+                debug("bluetoothSco => not up after ${elapsedMs}ms, asking again")
+                guarded("bluetoothSco retry") { switch.activate() }
+                scheduleBluetoothScoRetry(elapsedMs + SCO_RETRY_INTERVAL_MS)
+            }
+        }
+        // Armed unconditionally and filtered when it fires: the selection can still be null
+        // here on API 23-30, where the first device list arrives on a later looper turn.
+        bluetoothScoRetry = attempt
+        TwilioProgrammableVideoPlugin.handler.postDelayed(attempt, SCO_RETRY_INTERVAL_MS)
+    }
+
+    private fun cancelBluetoothScoRetry() {
+        bluetoothScoRetry?.let {
+            TwilioProgrammableVideoPlugin.handler.removeCallbacks(it)
+            bluetoothScoRetry = null
+        }
+    }
+
+    private fun isBluetoothScoOn(): Boolean {
+        return try {
+            @Suppress("DEPRECATION")
+            audioManager.isBluetoothScoOn
+        } catch (e: RuntimeException) {
+            // Read as "not up yet", which costs at most the retries the timeout allows.
+            debug("isBluetoothScoOn => failed: $e")
+            false
+        }
     }
 
     /**
@@ -212,14 +308,30 @@ internal class AudioRouter(private val applicationContext: Context) {
      */
     fun deactivate() = onMainThread {
         debug("deactivate")
+        cancelBluetoothScoRetry()
+        activated = false
         guarded("deactivate") { audioSwitch?.deactivate() }
     }
+
+    /**
+     * Whether there is anything for [stop] to release.
+     *
+     * For callers that have to tell "this router was never used" from "this router has a
+     * switch", because [stop] announces the device list as gone either way and
+     * `AudioNotificationListener` — the thing it announces through — is shared by every
+     * router in the process. A router that never started must not clear the list a
+     * different one is maintaining.
+     */
+    internal val isRunning: Boolean
+        get() = started || audioSwitch != null
 
     /** Deactivates, if needed, stops device discovery and forgets the switch. */
     fun stop() = onMainThread {
         val switch = audioSwitch
         if (switch == null) {
             debug("stop => nothing to release")
+            cancelBluetoothScoRetry()
+            activated = false
             started = false
             appliedOrder = null
             // Still withdrawn: a start that threw after the scanner had announced devices
@@ -251,6 +363,8 @@ internal class AudioRouter(private val applicationContext: Context) {
      * least keeps such a switch from corrupting the events the Dart layer sees.
      */
     private fun releaseSwitch(switch: AbstractAudioSwitch) {
+        cancelBluetoothScoRetry()
+        activated = false
         guarded("release => deactivate") { switch.deactivate() }
         val didStop = guarded("release => stop") { switch.stop() }
         if (audioSwitch === switch) {
@@ -322,6 +436,46 @@ internal class AudioRouter(private val applicationContext: Context) {
 }
 
 /**
+ * How long to wait between asks for the Bluetooth SCO link, and how long to keep asking.
+ *
+ * Both match `BluetoothScoJob`, the retry loop AudioSwitch runs for the same purpose on
+ * the releases where it is wired up — see [AudioRouter.scheduleBluetoothScoRetry] for why
+ * it is not wired up on the ones this covers.
+ */
+internal const val SCO_RETRY_INTERVAL_MS = 500L
+internal const val SCO_RETRY_TIMEOUT_MS = 5000L
+
+/**
+ * Whether this release routes Bluetooth through SCO *and* leaves the plugin to retry it.
+ *
+ * Below 23 [LegacyAudioSwitch] drives `BluetoothHeadsetManager`, whose
+ * `EnableBluetoothScoJob` already retries, so a second loop on top would double the asks.
+ * From 31 [CommDeviceAudioSwitch] routes with `setCommunicationDevice` and never touches
+ * SCO, so `isBluetoothScoOn` says nothing about whether the route took.
+ */
+internal fun bluetoothScoNeedsWatchdog(sdkInt: Int): Boolean {
+    return sdkInt >= Build.VERSION_CODES.M && sdkInt < Build.VERSION_CODES.S
+}
+
+/**
+ * Whether a Bluetooth route that has not come up yet is worth asking for again.
+ *
+ * Split out from [AudioRouter.scheduleBluetoothScoRetry], which cannot be reached from a
+ * JVM test — every input here is read from `Build`, `AudioManager` or AudioSwitch.
+ */
+internal fun shouldRetryBluetoothSco(
+    sdkInt: Int,
+    selectedIsBluetooth: Boolean,
+    scoOn: Boolean,
+    elapsedMs: Long
+): Boolean {
+    if (!bluetoothScoNeedsWatchdog(sdkInt)) return false
+    if (!selectedIsBluetooth) return false
+    if (scoOn) return false
+    return elapsedMs < SCO_RETRY_TIMEOUT_MS
+}
+
+/**
  * Runs [action] on the main looper, inline when already there, and swallows a
  * RuntimeException from the posted path.
  *
@@ -352,14 +506,27 @@ internal fun runOnMainThread(what: String, action: () -> Unit) {
  * `bluetoothPreferred` meant "do not force the speaker while a headset is connected"
  * and `speakerphoneEnabled` meant "write isSpeakerphoneOn". Expressed as an order they
  * become one rule — `speakerphoneEnabled: true, bluetoothPreferred: true` reads as
- * "speaker, except when a headset is connected", which is what an app passing both
- * already expected and what the old code failed to deliver.
+ * "speaker, except when a Bluetooth headset is connected", which is what an app passing
+ * both already expected and what the old code failed to deliver.
  *
- * Only the entries this function cares about are listed; AudioSwitch appends whatever
- * is missing from its own default order, so the result is always a full list. The
- * unlisted entry lands behind the ones named here, which is why a `bluetoothPreferred:
- * false` caller still gets Bluetooth as a last resort rather than silence when it is
- * the only device connected.
+ * Every device class is named, deliberately. AudioSwitch fills an incomplete list from
+ * its own default order, and not by appending: `AbstractAudioSwitch.getPreferredDeviceList`
+ * removes the named entries from that default and reinserts them at the *front*, so an
+ * omitted entry keeps its default rank rather than dropping to last. Leaving Bluetooth
+ * out for `bluetoothPreferred: false` therefore left it ahead of the speaker, and on a
+ * device with no earpiece — a tablet, anything without FEATURE_TELEPHONY — the call went
+ * to the very headset the app had opted out of. Naming all four leaves AudioSwitch
+ * nothing to place.
+ *
+ * `speakerphoneEnabled: true` outranks a wired headset, which is what the
+ * `isSpeakerphoneOn = true` write it replaces did: that write moved playout off a
+ * plugged-in headset. It is also the only lever the Dart API has here, so ranking the
+ * wired entry above it unconditionally left an app whose user taps "speaker" with
+ * earbuds in with no way to ask again — the call reported success and stayed on the
+ * earbuds. `bluetoothPreferred` still outranks the speaker: that flag is what says a
+ * headset wins, and an app that wants the speaker instead passes `false`. The
+ * unpreferred Bluetooth entry goes last rather than being dropped, so it is still a last
+ * resort ahead of silence when it is the only device connected.
  *
  * Kept as a top-level function, out of [AudioRouter], so the JVM unit tests can reach
  * it without loading a class whose constructor touches the Android framework.
@@ -369,15 +536,19 @@ internal fun preferredDeviceListFor(settings: AudioSettings): List<Class<out Aud
     if (settings.bluetoothPreferred) {
         order.add(AudioDevice.BluetoothHeadset::class.java)
     }
-    // A wired headset outranks the speaker whatever the flags say. There is no Dart
-    // switch for it, and plugging one in has always meant "route here".
+    if (settings.speakerEnabled) {
+        order.add(AudioDevice.Speakerphone::class.java)
+    }
+    // Below whatever the flags asked for, the built-in order stands: a wired headset
+    // over the earpiece — AudioSwitch drops the earpiece from the available set while
+    // one is plugged in anyway — and both over the outputs the caller declined.
     order.add(AudioDevice.WiredHeadset::class.java)
-    order.add(
-        if (settings.speakerEnabled) {
-            AudioDevice.Speakerphone::class.java
-        } else {
-            AudioDevice.Earpiece::class.java
-        }
-    )
+    order.add(AudioDevice.Earpiece::class.java)
+    if (!settings.speakerEnabled) {
+        order.add(AudioDevice.Speakerphone::class.java)
+    }
+    if (!settings.bluetoothPreferred) {
+        order.add(AudioDevice.BluetoothHeadset::class.java)
+    }
     return order
 }

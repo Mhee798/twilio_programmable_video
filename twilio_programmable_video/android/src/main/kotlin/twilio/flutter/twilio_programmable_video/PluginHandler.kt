@@ -109,6 +109,13 @@ class PluginHandler : MethodCallHandler, ActivityAware, BaseListener {
         if (call.method != "getStats") {
             debug("onMethodCall => received ${call.method}")
         }
+
+        // A call arriving here is what identifies the engine that is actually using the
+        // plugin, and so where the process-wide statics should point — see
+        // TwilioProgrammableVideoPlugin.pluginHandler. Attaching is not the same thing: a
+        // background engine gets the plugin registered whether its Dart side wants it or
+        // not, which is how it used to take those statics over.
+        TwilioProgrammableVideoPlugin.claimSharedStatics(this)
         when (call.method) {
             "debug" -> debug(call, result)
             "connect" -> connect(call, result)
@@ -422,6 +429,22 @@ class PluginHandler : MethodCallHandler, ActivityAware, BaseListener {
 
         if (isUsingAudioSystem()) {
             audioRouter.activate()
+        } else {
+            // Recorded, not routed — and said out loud, because the two method channel calls
+            // that reach here, `setAudioSettings` and `setSpeakerphoneOn`, answer success
+            // either way. Without this line "the toggle did nothing" is indistinguishable
+            // from a routing call the audio stack rejected.
+            //
+            // Not a gap to close by activating anyway: an activated route holds the
+            // Bluetooth link the way audio focus holds playback, so engaging it here would
+            // stop another app's music from resuming for as long as the app leaves settings
+            // applied. The settings are re-applied from `connect` and from the audio player
+            // listener, so nothing is lost by waiting. iOS reaches the same place from the
+            // other direction — `setSpeakerphoneOn` there sets the AVAudioSession category
+            // and the route follows only once the Room's audio device is running.
+            debug("applyAudioSettings => stored but not routed: no Room is connected and no " +
+                    "audio player registered with the plugin is active. The settings apply " +
+                    "when one of those starts.")
         }
     }
 
@@ -750,14 +773,21 @@ class PluginHandler : MethodCallHandler, ActivityAware, BaseListener {
 
     internal fun setAudioFocus(focus: Boolean): Boolean {
         if (focus) {
+            // Snapshotted on the first take only, all three together. A second take before
+            // the matching release is reachable — `connect` on top of a ringtone the audio
+            // player is still playing, which took focus itself — and by then these read
+            // back the values the first take installed: an unmuted microphone and
+            // STREAM_VOICE_CALL. Re-reading them would discard what the app had set and
+            // leave the microphone unmuted for good once the call ended. The mode was
+            // always guarded this way; the other two were not.
             if (previousAudioMode == null) {
                 previousAudioMode = audioManager.mode
+                previousMicrophoneMute = audioManager.isMicrophoneMute
+                val volumeControlStream = this.activity?.volumeControlStream
+                if (volumeControlStream != null) {
+                    previousVolumeControlStream = volumeControlStream
+                }
             }
-            val volumeControlStream = this.activity?.volumeControlStream
-            if (volumeControlStream != null) {
-                previousVolumeControlStream = volumeControlStream
-            }
-            previousMicrophoneMute = audioManager.isMicrophoneMute
             var requestResult: Int
 
             // Request audio focus

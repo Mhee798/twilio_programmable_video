@@ -576,7 +576,11 @@ await TwilioProgrammableVideo.setAudioSettings(speakerphoneEnabled: true, blueto
 
 **Note:**
 
-> On Android a *wired* headset outranks the speaker under every combination of these two flags: `speakerphoneEnabled: true` means "the speaker rather than the earpiece", not "the speaker rather than whatever the user has plugged in". There is no flag to override that.
+> On Android these two flags become one device-priority order, and every output is ranked under every combination — nothing is left out. `speakerphoneEnabled: true` outranks a *wired* headset, so a speaker toggle still works with earbuds plugged in; `bluetoothPreferred: true` outranks the speaker, which is what makes "Bluetooth if available, otherwise the speaker" work. With `bluetoothPreferred: false` a Bluetooth headset is ranked last rather than excluded, so it is still used when it is the only device connected.
+
+**Note:**
+
+> These settings move audio only while the plugin is driving the audio system — from `Room.onConnected` until disconnect, and while an audio player registered with the plugin is playing. Called before `connect` or between calls, `setAudioSettings` and `setSpeakerphoneOn` record the preference for the next such window and answer success; they do not reroute audio the app is playing through some other plugin. On Android the route is engaged lazily for a reason: an activated route holds the Bluetooth link the way audio focus holds playback, so holding it between calls would stop another app's music from resuming.
 
 **Note:**
 

@@ -19,12 +19,21 @@
   — `setAudioSettings`, `getAudioSettings`, `disableAudioSettings` and `setSpeakerphoneOn` keep
   their signatures and an app needs no code change.
 
-  Three behaviour changes come with it, all on Android:
+  Five behaviour changes come with it, all on Android:
     - A headset that was *already* connected when the call started is now used. It never was
       before: `BluetoothHeadset.ACTION_CONNECTION_STATE_CHANGED` is not a sticky broadcast, so no
       event arrived for a connection that predated the plugin registering its receiver.
-    - A **wired** headset now outranks the speaker under every flag combination, matching the
-      Bluetooth behaviour. `speakerphoneEnabled: true` means "the speaker rather than the earpiece".
+    - A **wired** headset now outranks the earpiece *and* a Bluetooth headset the app has not asked
+      for, so plugging one in routes to it. `speakerphoneEnabled: true` still outranks it, as the
+      `isSpeakerphoneOn = true` write it replaces did — that flag is the only lever the Dart API
+      offers, and a speaker toggle has to work with earbuds plugged in.
+    - The route is engaged only while the plugin is driving audio — from `Room.onConnected` until
+      disconnect, and while an audio player registered with the plugin is playing. `setAudioSettings`
+      and `setSpeakerphoneOn` outside those windows record the preference for the next one instead of
+      writing `AudioManager.isSpeakerphoneOn` on the spot, which is what the old code did. This is
+      deliberate: an activated route holds the Bluetooth link the way audio focus holds playback, so
+      keeping it between calls would stop another app's music from resuming, and it matches what iOS
+      has always done. The audio debug log says so on each such call.
     - `getSpeakerphoneOn` reports the selected device rather than `AudioManager.isSpeakerphoneOn`,
       which on API 31+ is no longer what decides the route. It answers "the speaker is where the
       current settings send audio", so it keeps its value across `disconnect` rather than tracking
@@ -41,6 +50,34 @@
   app needs no Gradle change. The fork rather than `com.twilio:audioswitch` because only the fork
   has `CommDeviceAudioSwitch`; the last upstream release (1.2.5) still toggles `isSpeakerphoneOn`
   and `startBluetoothSco`.
+- **Android API 23-30**: a Bluetooth headset that did not pick up the SCO link on the first ask is
+  now asked again, every 500 ms for up to five seconds, instead of staying silent for the whole
+  call. Those releases route Bluetooth with `AudioManager.startBluetoothSco()`, which does not
+  always take on the first attempt — the code this replaces deferred that call by a second for the
+  same reason — and the AudioSwitch variant used there asks exactly once: its `BluetoothScoJob`
+  retry loop is reachable only from `LegacyAudioSwitch` (API < 23). The re-ask is
+  `AudioSwitch.activate()`, which re-runs the routing call on an already-activated switch, and it
+  stops as soon as `isBluetoothScoOn` reports the link, when the selection is no longer Bluetooth,
+  or when the route is released. API 31+ is unaffected: it routes with `setCommunicationDevice`,
+  which reports its own failures, and never starts SCO.
+- **Android**: the audio route and its device discovery are now released when the Flutter engine
+  detaches. Nothing did before: `disableAudioSettings` was the only caller of the teardown, and an
+  app that never calls it — the README does not require it — left the route claimed and the audio
+  device scanners registered for the rest of the process, so a headset stayed in call mode and
+  another app's audio could not resume. Skipped for an engine whose router was never started, since
+  the teardown withdraws the device list and that list is shared with any other engine in the
+  process.
+- **Android**: a second `FlutterEngine` in the same process no longer takes over the plugin's
+  process-wide statics. `onAttachedToEngine` assigned them unconditionally, so a `FirebaseMessaging`
+  background handler, a CallKit isolate or an add-to-app host attaching the plugin redirected camera
+  events (`cameraError`, `firstFrameAvailable`, `cameraSwitched`) and the audio player listener to
+  that engine's handler — whose event sinks nothing had listened to, so the events were dropped —
+  and `onDetachedFromEngine` never handed them back, so they stayed dropped for the rest of the
+  process. Each engine keeps its own handler for its own channels; the shared pointer now follows
+  the engine that last made a method channel call — the one actually using the plugin — since attach
+  order settles nothing: newest-wins is the bug above, and oldest-wins strands the pointer on the
+  background engine when an incoming call wakes a terminated app. `onDetachedFromEngine` also
+  releases the camera and audio-notification channels, which it had been leaving registered.
 - **Android**, two limitations that come with routing through AudioSwitch and are recorded here rather
   than worked around:
     - With **two Bluetooth audio devices connected at once**, only the first is reported and used.

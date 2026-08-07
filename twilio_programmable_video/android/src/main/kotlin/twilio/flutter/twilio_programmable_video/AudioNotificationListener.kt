@@ -109,24 +109,33 @@ class AudioNotificationListener() : BaseListener() {
         val isConnected = TwilioProgrammableVideoPlugin.isConnected()
 
         debug("audioPlayerEventListener =>\n\tisConnected: $isConnected\n\talreadyActive: $anyAudioPlayersAlreadyActive\n\tnowActive: $anyAudioPlayersNowActive")
+        // Do not setAudioFocus on either branch if we are Connected, because if we are we
+        // presumably already have audio focus, and want to keep it.
         if (anyAudioPlayersNowActive && !anyAudioPlayersAlreadyActive) {
+            // Focus first, then the route — the order PluginHandler.connect uses, and the
+            // reverse of what stood here. `AudioSwitch.activate()` caches the audio state
+            // it will put back on deactivate and then forces the microphone unmuted, so
+            // routing first made that forced value the one `setAudioFocus` saved as "before
+            // the call": an app that had muted the microphone got it restored to unmuted
+            // once the player stopped, permanently. Taking focus first also means the
+            // device is already in MODE_IN_COMMUNICATION when the route is engaged, which
+            // is the mode `startBluetoothSco()` needs on API 23-30.
+            if (!isConnected) {
+                debug("audioPlayerEventListener => setAudioFocus: true")
+                TwilioProgrammableVideoPlugin.pluginHandler.setAudioFocus(true)
+            }
             TwilioProgrammableVideoPlugin.pluginHandler.applyAudioSettings()
         } else if (!isConnected && !anyAudioPlayersNowActive && anyAudioPlayersAlreadyActive) {
             // An activated route functions similarly to holding Audio Focus when it comes
             // to external apps audio, if that external app would normally be using the connected
             // bluetooth device. That is, it prevents the external app from resuming playback.
             //
-            // Ordered against setAudioFocus below exactly as in PluginHandler.disconnect:
-            // the router restores the mode it captured on activate, then setAudioFocus
-            // restores the one from before the call.
+            // Ordered exactly as in PluginHandler.disconnect: the router restores the mode
+            // it captured on activate, then setAudioFocus restores the one from before the
+            // call. Deactivating second would leave the router's value on top.
             TwilioProgrammableVideoPlugin.pluginHandler.audioRouter.deactivate()
-        }
-
-        // Do not setAudioFocus here if we are Connected, because if we are we presumably already have
-        // audio focus, and want to keep it.
-        if (!isConnected && anyAudioPlayersAlreadyActive != anyAudioPlayersNowActive) {
-            debug("audioPlayerEventListener => setAudioFocus: $anyAudioPlayersNowActive")
-            TwilioProgrammableVideoPlugin.pluginHandler.setAudioFocus(anyAudioPlayersNowActive)
+            debug("audioPlayerEventListener => setAudioFocus: false")
+            TwilioProgrammableVideoPlugin.pluginHandler.setAudioFocus(false)
         }
     }
 
